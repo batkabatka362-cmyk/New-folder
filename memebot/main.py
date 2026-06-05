@@ -33,6 +33,7 @@ from .data.creator_history import CreatorHistory
 from .data.funder_history import FunderRegistry
 from .data.metadata_history import MetadataRegistry
 from .data.smart_money import SmartMoney
+from .data.buyer_intel import BuyerIntel
 from .data.token_state import TokenRegistry
 from .execution.paper import PaperBackend
 from .execution.pricing import PriceSource
@@ -70,6 +71,12 @@ class Bot:
         self._holder_funder_cache: dict[str, str | None] = {}   # holder-cluster: wallet -> funder (immutable; cache to bound cost)
         self.metadata_history = MetadataRegistry()  # branding-duplication (name/ticker reuse = scam-factory tell)
         self.smart_money = SmartMoney()            # P8: per-wallet cross-token PnL -> copy-trade signal (G3 tape)
+        # WL9: free-data smart-money — learn wallet reputation from OUR outcomes -> confluence signal. OFF
+        # by default (the buyer read is costly); reputations accrue slowly. See agent/buyer_intel.
+        self.buyer_intel = BuyerIntel(min_tokens=settings.buyer_intel_min_tokens,
+                                      smart_winrate=settings.buyer_intel_smart_winrate,
+                                      dumper_rugrate=settings.buyer_intel_dumper_rugrate)
+        self._buyer_cache: dict[str, list[str]] = {}   # mint -> early-buyer wallets (immutable; bound cost)
         self.storage = Storage(settings.db_path)
         self.events: asyncio.Queue = asyncio.Queue(maxsize=20_000)
         self.feed = PumpPortalFeed(
@@ -213,6 +220,11 @@ class Bot:
         # on our TRADED set — we lose on LOW-reuse mints; the gates already filter launch-time dupe spam.)
         if "name_reuse_count" in c.features:
             feats["name_reuse_count"] = c.features["name_reuse_count"]
+        # WL9: the free-data smart-money confluence counts (dataset-only keys), present only when the
+        # buyer-intel scan ran for this candidate — logged so the signal can be validated vs outcomes.
+        for k in ("smart_buyer_count", "dumper_buyer_count", "early_buyers"):
+            if k in c.features:
+                feats[k] = c.features[k]
         # P7: log the live TRADE-FLOW signal (sells-dominating-on-the-tape) as non-FEATURE_NAMES keys
         # alongside every observation. This is the user's "experienced trader senses the rug from the
         # trades" tell turned into DATA: accumulated against forward outcomes so P4 can LEARN the
@@ -507,13 +519,37 @@ class Bot:
             ranked.append(c)
 
         ranked.sort(key=lambda x: x.score, reverse=True)
+        await self._buyer_intel_scan(ranked)           # WL9: free-data smart-money confluence (gated, top-N)
         self_state = self._account_state()             # AI2: the brain reasons on its own book
         await self._decide_and_open(ranked, self_state)
-
         # W2: observe HELD positions (P4 label coverage) + cut rugs on pool collapse. After the buy
         # loop so a liq_collapse close frees a slot only once this cycle's entries are placed.
         if held:
             await self._observe_held(held, snaps)
+
+    async def _buyer_intel_scan(self, ranked: list[Candidate]) -> None:
+        """WL9 (the #1 trader winner-signal, free-data): for the top-N ranked candidates, reconstruct
+        recent BUYER wallets via the Helius RPC (no SOL — vs the metered tape), learn each wallet's
+        reputation from our forward outcomes, and attach the smart-vs-dumper early-buyer counts to the
+        candidate (logged for validation; LOG-only, never a veto until shown to separate). OFF by default
+        + cost-gated to buyer_intel_top_n tokens/cycle; cached per mint (early buyers are immutable);
+        fully defensive (any RPC failure is a no-op)."""
+        if not self.s.buyer_intel_enabled or self.helius is None:
+            return
+        for c in ranked[: max(0, self.s.buyer_intel_top_n)]:
+            wallets = self._buyer_cache.get(c.mint)
+            if wallets is None:
+                try:
+                    buyers = await self.helius.get_recent_buyers(c.mint, max_sigs=self.s.buyer_intel_max_sigs)
+                except Exception:  # noqa: BLE001
+                    continue
+                wallets = [w for w, _ in buyers]
+                self._buyer_cache[c.mint] = wallets
+                self.buyer_intel.record_buyers(c.mint, wallets)   # stash for outcome resolution (calibrate)
+            conf = self.buyer_intel.confluence(wallets)
+            c.features["smart_buyer_count"] = conf["smart_count"]    # the research's confluence signal
+            c.features["dumper_buyer_count"] = conf["dumper_count"]  # the inverse (rug-magnet) tell
+            c.features["early_buyers"] = conf["n_buyers"]
 
     async def _decide_and_open(self, ranked: list[Candidate], self_state: dict) -> None:
         """Decide the top candidates CONCURRENTLY (bounded by llm_parallel), then apply buys
@@ -705,6 +741,11 @@ class Bot:
                 iss = await self.image_scorer.score(c.mint, _st.uri)
                 if iss is not None:
                     entry_feats["image_scam_score"] = iss
+        # WL9: carry the smart-money confluence counts onto the trade's entry features (dataset-only keys)
+        # so the signal is validated against THIS trade's realized outcome (image_separation-style).
+        for k in ("smart_buyer_count", "dumper_buyer_count", "early_buyers"):
+            if k in c.features:
+                entry_feats[k] = c.features[k]
         if not self.portfolio.apply_buy(
             fill, symbol=c.symbol, mode=mode,
             tp_override=(verdict.tp_pct or None), sl_override=(verdict.sl_pct or None),
@@ -1233,7 +1274,8 @@ class Bot:
         rep = creator_reputation(recs, self.storage.mint_creators(),
                                  min_tokens=self.s.safety.creator_rep_min_tokens,
                                  now_ts=time.time(), half_life_s=self.s.safety.creator_rep_half_life_s)  # P10b CAL3
-        return summary, suggest_thresholds(summary), rep, readiness(summary), separation_report(recs)
+        mint_outcomes = {r["mint"]: r["outcome"] for r in recs}   # WL9: resolve recorded buyers' reputations
+        return summary, suggest_thresholds(summary), rep, readiness(summary), separation_report(recs), mint_outcomes
 
     async def _calibrate_loop(self) -> None:
         """P8 self-improvement: periodically (off the hot path) classify our own outcomes, learn what
@@ -1246,7 +1288,15 @@ class Bot:
                 data = await asyncio.to_thread(self._build_calibration)
                 if data is None:
                     continue
-                summary, suggestions, rep, ready, sep = data
+                summary, suggestions, rep, ready, sep, mint_outcomes = data
+                # WL9: resolve recorded early-buyers against the forward outcome (winner -> credit,
+                # rug/dead -> debit), then persist the slow-accruing reputations. on_outcome is a no-op
+                # for mints we never read buyers for, so this is safe whether or not the scan is enabled.
+                for _m, _o in mint_outcomes.items():
+                    self.buyer_intel.on_outcome(_m, won=(_o == "winner"), rugged=(_o in ("rug", "dead")))
+                snap = self.buyer_intel.snapshot()
+                if snap:
+                    await asyncio.to_thread(self.storage.save_buyer_reputations, snap)
                 self._creator_rep = rep                         # feed the brain (advisory)
                 # P8 RIGOROUS separation: the proper single-feature AUC verdict on winner-vs-rug —
                 # the honest "does any signal separate?" read that watches the velocity/liq-trend
@@ -1429,6 +1479,7 @@ class Bot:
         self.creator_history.load(self.storage.creator_launch_counts())   # seed the per-creator launch tally
         self.metadata_history.load(self.storage.name_symbol_counts())     # seed the branding-reuse tally
         self.smart_money.load(self.storage.load_wallets())                # seed cross-restart wallet reputation
+        self.buyer_intel.load(self.storage.load_buyer_reputations())      # WL9: seed the slow-accruing buyer reputations
         self.funder_history.load(self.storage.load_creator_funders())     # N12: seed the funder cluster graph
         await self.memory.load()
         log.info(

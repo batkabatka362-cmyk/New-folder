@@ -912,3 +912,15 @@ literature is explicit), but it is the one documented winner-edge we have NEVER 
   (we can only afford buyer reads for a handful of tokens/cycle on the Helius tier), where the metered
   tape would stream every trade — so the smart-money signal is real but SLOW to mature on free data. That
   is the honest ceiling, surfaced to the user before wiring the hot-path reads.
+
+- **Phase 3 (built, the user chose the free path): full integration, gated OFF.** Wired `BuyerIntel` end
+  to end: a new `_buyer_intel_scan` runs after ranking for the top-`buyer_intel_top_n` candidates (when
+  `buyer_intel_enabled`), reconstructs buyers via `get_recent_buyers` (cached per mint, fully defensive),
+  `record_buyers` for later resolution, and attaches `smart_buyer_count` / `dumper_buyer_count` /
+  `early_buyers` to the candidate — logged into both `observations` (via `_features_json`) and the
+  trade's `entry_features` so the confluence is validatable against realized outcomes. The calibrate loop
+  resolves recorded buyers (`on_outcome`: winner→credit, rug/dead→debit) and persists the reputations to
+  a new `buyer_reputations` table (seeded at startup). OFF by default + `top_n=1` so it spends no SOL and
+  barely touches the Helius budget until the user opts in (`BUYER_INTEL_ENABLED=true`). LOG-first: the
+  confluence counts never gate a buy until `image_separation`-style validation shows they separate.
+  Honest limit unchanged — reputations mature slowly on free data. Suite 253 → 254.

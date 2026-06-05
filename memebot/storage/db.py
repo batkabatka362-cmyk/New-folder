@@ -188,6 +188,18 @@ CREATE TABLE IF NOT EXISTS wallets (
     ts      REAL
 );
 
+-- WL9 BUYER INTELLIGENCE: per-wallet reputation learned from OUR forward outcomes (a wallet whose
+-- early-bought tokens tend to WIN is smart, tends to RUG is a dumper). The free-data form of smart-money
+-- tracking (the metered trade tape would give external PnL; this learns from our own labels). Persisted
+-- so the slow-accruing reputations survive restarts.
+CREATE TABLE IF NOT EXISTS buyer_reputations (
+    wallet  TEXT PRIMARY KEY,
+    tokens  INTEGER,
+    wins    INTEGER,
+    rugs    INTEGER,
+    ts      REAL
+);
+
 -- N12 FUNDER CLUSTERING: the resolved funding source of each creator wallet, persisted (a wallet's
 -- funder is immutable), so the rotated-creator cluster graph accrues across restarts.
 CREATE TABLE IF NOT EXISTS creator_funders (
@@ -670,6 +682,29 @@ class Storage:
                 return []
             try:
                 return conn.execute("SELECT wallet,pnl,closed,wins FROM wallets").fetchall()
+            except sqlite3.OperationalError:
+                return []
+
+    def save_buyer_reputations(self, rows) -> None:
+        """WL9: upsert the per-wallet (tokens, wins, rugs) buyer reputations (sync; called periodically)."""
+        with self._lock:
+            conn = self._conn
+            if conn is None:
+                return
+            conn.executemany(
+                "INSERT OR REPLACE INTO buyer_reputations(wallet,tokens,wins,rugs,ts) VALUES(?,?,?,?,?)",
+                [(w, tokens, wins, rugs, time.time()) for (w, tokens, wins, rugs) in rows],
+            )
+            conn.commit()
+
+    def load_buyer_reputations(self) -> list:
+        """WL9: (wallet, tokens, wins, rugs) rows to seed BuyerIntel at startup. [] on an old DB."""
+        with self._lock:
+            conn = self._conn
+            if conn is None:
+                return []
+            try:
+                return conn.execute("SELECT wallet,tokens,wins,rugs FROM buyer_reputations").fetchall()
             except sqlite3.OperationalError:
                 return []
 

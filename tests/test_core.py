@@ -1739,6 +1739,35 @@ def test_image_scam_score_logged_on_open():
     bot.storage.close()
 
 
+def test_buyer_intel_scan_wiring_and_persistence():
+    """WL9 Phase 3: the eval scan attaches the smart-money CONFLUENCE features (gated + cost-limited),
+    and the learned wallet reputations round-trip through SQLite. Free-data (no SOL)."""
+    import asyncio
+    from memebot.main import Bot
+    bot = Bot(Settings(db_path=":memory:", llm_backend="off", buyer_intel_enabled=True, buyer_intel_top_n=2))
+    bot.storage.connect()
+
+    class FakeHelius:                                            # stands in for the Helius RPC (no SOL)
+        async def get_recent_buyers(self, mint, max_sigs=20):
+            return [("SW", 100.0), ("DW", 50.0), ("Z", 10.0)]
+    bot.helius = FakeHelius()
+    for i in range(3):                                          # learn SW = smart, DW = dumper from outcomes
+        bot.buyer_intel.record_buyers(f"w{i}", ["SW"]); bot.buyer_intel.on_outcome(f"w{i}", won=True)
+        bot.buyer_intel.record_buyers(f"r{i}", ["DW"]); bot.buyer_intel.on_outcome(f"r{i}", won=False, rugged=True)
+    c = Candidate(mint="M1", symbol="M1"); c.score = 0.9
+    asyncio.run(bot._buyer_intel_scan([c]))
+    assert c.features["smart_buyer_count"] == 1 and c.features["dumper_buyer_count"] == 1
+    assert c.features["early_buyers"] == 3 and "M1" in bot.buyer_intel._pending   # recorded for later resolution
+    bot.helius = None                                          # gate: no RPC -> no-op even when enabled
+    c2 = Candidate(mint="M2", symbol="M2"); c2.score = 0.9
+    asyncio.run(bot._buyer_intel_scan([c2]))
+    assert "smart_buyer_count" not in c2.features
+    bot.storage.save_buyer_reputations(bot.buyer_intel.snapshot())   # reputations round-trip through SQLite
+    bot.buyer_intel.load(bot.storage.load_buyer_reputations())
+    assert bot.buyer_intel.is_smart("SW") and bot.buyer_intel.is_dumper("DW")
+    bot.storage.close()
+
+
 def test_miss_learn_cross_pass_one_row_per_mint():
     # the same mint observed in two passes must record ONE missed_winner (token-level), but BOTH
     # observations get judged (no re-fetch). Exercises the `seen` pre-seed across passes.

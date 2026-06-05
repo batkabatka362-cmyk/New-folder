@@ -297,6 +297,19 @@ class Settings:
     image_ipfs_gateway: str = "https://ipfs.io/ipfs/"   # resolve ipfs:// metadata/image refs
     image_scam_max_bytes: int = 5_000_000    # skip absurdly large images (defensive)
 
+    # WL9 — BUYER INTELLIGENCE (the #1 trader winner-signal: smart-money confluence) on FREE data. For the
+    # top-N ranked candidates each cycle, reconstruct recent BUYER wallets from the Helius RPC (no SOL, vs
+    # the metered PumpPortal tape), learn each wallet's reputation from our forward outcomes, and log the
+    # smart-vs-dumper early-buyer counts. OFF by default + EXPENSIVE (~1+max_sigs RPC calls/token), so the
+    # top-N is small; reputations accrue SLOWLY on free data (the honest free-vs-metered trade-off). LOG-
+    # first: the confluence counts are logged for validation, never a veto until they are shown to separate.
+    buyer_intel_enabled: bool = False
+    buyer_intel_top_n: int = 1                # how many top-ranked candidates/cycle get the (costly) buyer read
+    buyer_intel_max_sigs: int = 20            # recent signatures scanned per token (each => 1 getTransaction)
+    buyer_intel_min_tokens: int = 3           # a wallet needs this many resolved tokens before it earns a label
+    buyer_intel_smart_winrate: float = 0.55   # >= this win-rate over resolved tokens = SMART money
+    buyer_intel_dumper_rugrate: float = 0.6   # >= this rug-rate = DUMPER (exit-liquidity magnet)
+
     # Phase 2 — GBM scorer (rule scorer is used until a model is trained)
     gbm_model_path: str = "gbm_model.txt"
     gbm_entry_threshold: float = 0.40       # GBM prob scale. Val sweep: 0.40 => precision 0.40 (2.1x the 0.19 base), 0.5 starves (4/81). Re-tune as data grows.
@@ -574,6 +587,12 @@ class Settings:
             image_scam_timeout_s=_float("IMAGE_SCAM_TIMEOUT_S", 30.0),
             image_ipfs_gateway=_str("IMAGE_IPFS_GATEWAY", "https://ipfs.io/ipfs/"),
             image_scam_max_bytes=_int("IMAGE_SCAM_MAX_BYTES", 5_000_000),
+            buyer_intel_enabled=_bool("BUYER_INTEL_ENABLED", False),    # WL9: free-data smart-money confluence (LOG-only)
+            buyer_intel_top_n=_int("BUYER_INTEL_TOP_N", 1),
+            buyer_intel_max_sigs=_int("BUYER_INTEL_MAX_SIGS", 20),
+            buyer_intel_min_tokens=_int("BUYER_INTEL_MIN_TOKENS", 3),
+            buyer_intel_smart_winrate=_float("BUYER_INTEL_SMART_WINRATE", 0.55),
+            buyer_intel_dumper_rugrate=_float("BUYER_INTEL_DUMPER_RUGRATE", 0.6),
             gbm_model_path=_str("GBM_MODEL_PATH", "gbm_model.txt"),
             gbm_entry_threshold=_float("GBM_ENTRY_THRESHOLD", 0.40),
             gbm_balance_classes=_bool("GBM_BALANCE_CLASSES", True),
