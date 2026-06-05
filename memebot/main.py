@@ -738,7 +738,13 @@ class Bot:
             # forward — never a blind veto (name+symbol reuse did NOT separate on our buys; the IMAGE is the
             # untested dimension a count can't capture).
             if self.image_scorer is not None:
-                iss = await self.image_scorer.score(c.mint, _st.uri)
+                # WL6 fix: prefer the captured launch uri (free); fall back to Helius DAS getAsset for the
+                # image when the bot missed the token's CREATE event (uri empty — the common post-restart
+                # case that left image_scam_score unlogged on every buy). Defensive: '' on any failure.
+                img_url = ""
+                if not _st.uri and self.helius is not None:
+                    img_url = await self.helius.get_asset_image(c.mint)
+                iss = await self.image_scorer.score(c.mint, uri=_st.uri, image_url=img_url)
                 if iss is not None:
                     entry_feats["image_scam_score"] = iss
         # WL9: carry the smart-money confluence counts onto the trade's entry features (dataset-only keys)

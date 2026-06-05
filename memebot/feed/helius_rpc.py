@@ -232,6 +232,30 @@ class HeliusRPC:
         except (TypeError, KeyError):
             return []
 
+    async def get_asset_image(self, mint: str) -> str:
+        """WL6 fix: the token's IMAGE url via the Helius DAS `getAsset` (Metaplex metadata, already
+        resolved by Helius — no ipfs gateway needed). Robust for ANY mint, unlike the create-event uri
+        which is empty when the bot first saw the token post-launch. '' on any failure (never raises)."""
+        if not mint:
+            return ""
+        try:
+            res = await self._rpc("getAsset", {"id": mint})
+        except Exception:  # noqa: BLE001
+            return ""
+        try:
+            links = (res.get("content") or {}).get("links") or {}
+            img = links.get("image") or ""
+            if img:
+                return str(img)
+            files = (res.get("content") or {}).get("files") or []
+            for f in files:
+                u = (f or {}).get("uri") or (f or {}).get("cdn_uri")
+                if u:
+                    return str(u)
+        except (AttributeError, TypeError):
+            return ""
+        return ""
+
     @staticmethod
     def _buyers_from_tx(tx: dict, mint: str) -> list[tuple[str, float]]:
         """Pure: the owners who NET-RECEIVED `mint` tokens in one getTransaction(jsonParsed) result —

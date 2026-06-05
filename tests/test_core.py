@@ -1699,7 +1699,7 @@ def test_vision_scorer_disabled_empty_and_cached():
     assert asyncio.run(on.score("M", "")) is None                # empty uri -> None
     assert asyncio.run(on.score("", "ipfs://x")) is None         # empty mint -> None
     calls = []
-    async def fake(uri):
+    async def fake(uri, image_url=""):
         calls.append(uri); return 0.7
     on._score = fake                                             # stub the network path
     assert asyncio.run(on.score("M", "ipfs://x")) == 0.7
@@ -1726,8 +1726,8 @@ def test_image_scam_score_logged_on_open():
     bot.brain = BuyBrain()
 
     class FakeScorer:                                            # stands in for the vision call
-        async def score(self, mint, uri):
-            return 0.88 if uri else None
+        async def score(self, mint, uri="", image_url=""):
+            return 0.88 if (uri or image_url) else None
     bot.image_scorer = FakeScorer()
     c = Candidate(mint="H1", symbol="H1"); c.score = 0.9; c.mode = MODE_HOLD
     c.liquidity_usd = 12000.0; c.price_usd = 1e-4; c.price_sol = 1e-3

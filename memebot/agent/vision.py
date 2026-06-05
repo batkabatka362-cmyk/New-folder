@@ -120,23 +120,25 @@ class ImageScamScorer:
     async def __aexit__(self, *exc) -> None:
         await self.aclose()
 
-    async def score(self, mint: str, uri: str):
-        """0..1 scam score for the mint's image, or None. Cached per mint; never raises."""
-        if not self.enabled or not mint or not uri:
+    async def score(self, mint: str, uri: str = "", image_url: str = ""):
+        """0..1 scam score for the mint's image, or None. Pass `uri` (a metadata JSON to resolve) OR a
+        direct `image_url` (e.g. from Helius DAS, the robust source when the launch uri was missed).
+        Cached per mint; never raises."""
+        if not self.enabled or not mint or (not uri and not image_url):
             return None
         if mint in self._cache:
             return self._cache[mint]
         result = None
         try:
-            result = await self._score(uri)
+            result = await self._score(uri, image_url)
         except Exception as e:  # noqa: BLE001  — a screener must never break the buy path
             log.debug("image scam-score failed for %s: %s", mint[:8], e)
             result = None
         self._cache[mint] = result
         return result
 
-    async def _score(self, uri: str):
-        img_url = await self._image_url(uri)
+    async def _score(self, uri: str, image_url: str = ""):
+        img_url = resolve_url(image_url, self.gateway) if image_url else await self._image_url(uri)
         if not img_url:
             return None
         b64 = await self._image_b64(img_url)

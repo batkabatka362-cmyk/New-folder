@@ -975,6 +975,27 @@ def test_helius_recent_buyers_parse_and_fetch():
     assert calls["sig"] == 1 and calls["tx"] == 2                  # 1 sig fetch + 1 tx fetch / signature
 
 
+def test_helius_get_asset_image():
+    """WL6 fix: DAS getAsset -> resolved IMAGE url (robust for ANY mint, unlike the create-event uri
+    that is empty when the bot missed a token's launch). Falls back through links.image -> files[].uri."""
+    import asyncio
+    from memebot.feed.helius_rpc import HeliusRPC
+
+    def run(result):
+        async def go():
+            h = HeliusRPC("https://x.helius-rpc.com/?api-key=k")
+            async def fake_rpc(method, params):
+                assert method == "getAsset" and params == {"id": "M"}
+                return result
+            h._rpc = fake_rpc
+            return await h.get_asset_image("M")
+        return asyncio.run(go())
+    assert run({"content": {"links": {"image": "https://cdn/x.png"}}}) == "https://cdn/x.png"   # preferred
+    assert run({"content": {"files": [{"uri": "https://cdn/f.png"}]}}) == "https://cdn/f.png"    # fallback
+    assert run({"content": {}}) == "" and run(None) == ""          # nothing / null -> '' (defensive)
+    assert asyncio.run(HeliusRPC("https://x").get_asset_image("")) == ""   # empty mint -> '' (no rpc)
+
+
 def test_buyer_intel_smart_dumper_confluence():
     """WL9 Phase 2: learn wallet reputation from OUR observed outcomes -> the smart-money CONFLUENCE
     signal (smart vs dumper early-buyers) — the free-data form of how good traders find winners."""
