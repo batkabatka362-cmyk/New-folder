@@ -890,12 +890,25 @@ class Bot:
                 # memecoins (didn't separate), but a RISE while held = dev/insiders consolidating =
                 # distribution prep = rug imminent. Cut when it climbs >= conc_rise_cut_pct above ENTRY.
                 entry_conc = float(pos.entry_features.get("top5_concentration_pct") or -1.0)
-                if self._concentration_rose(conc, entry_conc, self.s.safety.conc_rise_cut_pct):
+                rose = self._concentration_rose(conc, entry_conc, self.s.safety.conc_rise_cut_pct)
+                action = reeval_action(conc, self.s.holder_cut_pct, self.s.holder_good_pct)
+                # WL3: persist EVERY real reading (delta vs entry + the action it drove) BEFORE acting, so
+                # the concentration-rise-while-held trajectory — the #1 free rug tell — is offline-measurable
+                # and conc_rise_cut_pct becomes calibratable (join to trade_outcomes by mint). Off the hot path.
+                if conc is not None:
+                    cprice = self._price_cache.get(mint)
+                    act_label = ("conc_rise" if rose else "holders_cut" if action == "cut"
+                                 else "extend" if (action == "extend" and pos.mode == MODE_SCALP)
+                                 else "derisk_conc" if conc >= self.s.safety.concentration_warn_pct else "")
+                    await self.storage.log_hold_concentration(
+                        mint=mint, symbol=pos.symbol, entry_conc_pct=entry_conc, conc_pct=conc,
+                        delta_pp=(conc - entry_conc if entry_conc >= 0 else None),
+                        pnl_pct=(pos.pnl_pct(cprice) if cprice else None), action=act_label)
+                if rose:
                     log.info("concentration ROSE on %s (%.0f%% -> %.0f%%, +%.0fpp) -> rug-prep cut",
                              pos.symbol or mint[:6], entry_conc, conc, conc - entry_conc)
                     await self._close_position(mint, "conc_rise")
                     continue
-                action = reeval_action(conc, self.s.holder_cut_pct, self.s.holder_good_pct)
                 if action == "cut":
                     log.info("holders worsened on %s (conc=%.0f%%) -> cutting", pos.symbol or mint[:6], conc or -1)
                     await self._close_position(mint, "holders_cut")

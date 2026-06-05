@@ -18,7 +18,7 @@ python -m memebot.backtest.simulate  # offline backtest over logged candidates (
 python -m memebot.backtest.replay    # logged-candidate funnel stats
 ```
 
-The test suite is currently 242 green and must stay green. `run_tests.py` discovers every `test_*` function under `tests/` and needs no third-party deps; keep it that way (see Conventions).
+The test suite is currently 244 green and must stay green. `run_tests.py` discovers every `test_*` function under `tests/` and needs no third-party deps; keep it that way (see Conventions).
 
 Honest realized PnL (read THIS for the go-live gate, never the in-memory/`trade_outcomes` number — one pricing-glitch fill can be ~100% of reported profit):
 
@@ -34,6 +34,8 @@ python -m memebot.backtest.dataset --horizon 300 --out classified.csv  # classif
 python -m memebot.backtest.exitlab --min-len 8                          # replay logged price paths through the REAL exit ladder; sweep ExitParams variants, rank by net return (the exit policy is the under-studied lever)
 python -m memebot.backtest.separation                                  # RIGOROUS winner-vs-rug per-feature AUC (Mann-Whitney) — the honest "does any signal separate?" verdict (static features confirmed AUC~0.5; watch velocity features as data accrues)
 python -m memebot.backtest.gate_attribution                            # spec-S7: the SAFETY GATE's rug-avoidance confusion matrix (rugs dodged vs winners lost) + per-named-reason dodge — the "is the gate catching rugs, and which check earns its keep?" read (per-reason needs `rule_reasons` logged, accruing post-deploy). Baseline: ~51% rug-dodge / ~41% winner-loss; A1/A2/B1 mechanism checks should lift dodge at ~0 winner cost.
+python -m memebot.backtest.winner_loss                                 # WL1: which gate CHECK rejects WINNERS — re-derives the live reject's reason offline -> per-reason winners-lost vs rugs-dodged + a TOO-STRICT verdict (the calibration lever; found buy/sell_low was 48%-precision noise -> min_buy_sell_ratio 1.5->1.0). ADVISORY.
+python -m memebot.backtest.conc_trajectory                             # WL3: does a top-5 concentration RISE WHILE HELD (the #1 free rug tell) separate rugs from winners? reads the hold_concentration time-series, peak-rise-per-mint vs the realized book, sweeps conc_rise_cut_pct candidates. ADVISORY; "no data yet" until the running bot accrues hold-time readings (needs a real Helius RPC).
 ```
 
 GBM activation (only when there is labeled data — needs `lightgbm numpy pyarrow`):
@@ -67,7 +69,7 @@ Module map (`memebot/` package):
 | `risk/` | `limits` (`RiskManager`: caps, daily-loss kill-switch, cooldowns, `kelly_fraction`, `expected_return`, `reeval_action`) |
 | `execution/` | `base` (`ExecutionBackend` ABC + `Fill`), `paper` (`PaperBackend`: priced fills + stacked fees + slippage), `pricing` |
 | `portfolio/` | `portfolio` (`Portfolio`/`Position`/`ExitParams`/`ClosedTrade`; `should_exit`, `should_take_partial`, `derisk_fraction`), `pnl` (`compute_stats`) |
-| `storage/` | `db` (SQLite WAL: tokens, candidates, trades, equity, lessons, verdicts, observations, trade_outcomes, missed_winners, miss_judged), `archive` (Parquet) |
+| `storage/` | `db` (SQLite WAL: tokens, candidates, trades, equity, lessons, verdicts, observations, trade_outcomes, missed_winners, miss_judged, hold_concentration), `archive` (Parquet) |
 | `alerts/` | `telegram` (async alert queue), `commands` (`/pnl` `/positions` `/status` `/stop` `/resume` `/help`) |
 | `backtest/` | `replay`, `label`, `train_gbm`, `simulate`, plus study/sweep tools |
 | `main.py` | `Bot`: wiring of all the loops above |

@@ -1454,6 +1454,26 @@ def test_readiness_log_persistence():
     st.close()
 
 
+def test_hold_concentration_persistence():
+    """WL3: the hold-time concentration capture round-trips through the schema and feeds the
+    conc_trajectory read side (peak rise per mint)."""
+    import asyncio
+    from memebot.storage.db import Storage
+    from memebot.backtest.conc_trajectory import peak_rise_by_mint
+    st = Storage(":memory:"); st.connect()
+
+    async def run():
+        await st.log_hold_concentration(mint="L1", symbol="L", entry_conc_pct=40.0, conc_pct=49.0,
+                                        delta_pp=9.0, pnl_pct=-0.2, action="conc_rise")
+        await st.log_hold_concentration(mint="W1", symbol="W", entry_conc_pct=30.0, conc_pct=33.0,
+                                        delta_pp=3.0, pnl_pct=0.1, action="")
+    asyncio.run(run())
+    rows = st._conn.execute("SELECT mint, delta_pp, action FROM hold_concentration ORDER BY mint").fetchall()
+    assert rows == [("L1", 9.0, "conc_rise"), ("W1", 3.0, "")]
+    assert peak_rise_by_mint([(m, d) for m, d, _ in rows]) == {"L1": 9.0, "W1": 3.0}
+    st.close()
+
+
 def test_tracking_candidates_window_and_exclusions():
     import asyncio
     import time as _t

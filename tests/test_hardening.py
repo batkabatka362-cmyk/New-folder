@@ -833,6 +833,29 @@ def test_winner_loss_attribution_too_strict():
     assert abs(row["precision"] - 1.0 / 3.0) < 1e-9                 # rugs / (rugs + winners) it rejected
 
 
+def test_conc_trajectory_analyze():
+    """WL3: hold-time concentration-rise trajectory -> per-mint PEAK rise, win/lose join, threshold sweep
+    (losers-caught vs winners-wrongly-cut). The read side of the new hold_concentration capture."""
+    from memebot.backtest.conc_trajectory import peak_rise_by_mint, win_by_mint, analyze
+    hc = [("L1", 2.0), ("L1", 9.0), ("L1", 5.0),   # loser peaks at +9pp (MAX over readings)
+          ("L2", 6.0),                              # loser peaks at +6pp
+          ("W1", 1.0), ("W1", 3.0),                 # winner peaks at +3pp
+          ("U1", None)]                             # unknown entry baseline -> dropped (no reference)
+    peak = peak_rise_by_mint(hc)
+    assert peak == {"L1": 9.0, "L2": 6.0, "W1": 3.0} and "U1" not in peak
+    to = [("L1", -0.5, -0.5), ("L2", -0.2, -0.2), ("W1", 0.4, 0.4),
+          ("G1", 99.0, 50.0)]                       # >20x pricing glitch -> excluded from the book
+    wins = win_by_mint(to)
+    assert wins == {"L1": False, "L2": False, "W1": True} and "G1" not in wins
+    a = analyze(peak, wins, thresholds=(5.0, 8.0))
+    assert a["n"] == 3 and a["n_win"] == 1 and a["n_lose"] == 2
+    assert a["winner_med"] == 3.0 and a["loser_med"] == 7.5         # median(6,9)=7.5 -> losers rise MORE
+    s5 = {r["threshold"]: r for r in a["sweep"]}[5.0]
+    assert s5["losers_caught"] == 2 and s5["winners_cut"] == 0 and s5["precision"] == 1.0  # +5pp catches both losers, no winner
+    s8 = {r["threshold"]: r for r in a["sweep"]}[8.0]
+    assert s8["losers_caught"] == 1 and s8["winners_cut"] == 0      # +8pp catches only the +9pp loser
+
+
 # ── holder funding-cluster (free-data concealed-concentration) ─────────────────
 def test_holder_funder_cluster_and_owner_resolution():
     """Holder funding-cluster: the pure cluster fn + get_holder_owners (vault/burn excluded, deduped)."""

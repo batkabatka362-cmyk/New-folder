@@ -688,3 +688,30 @@ honestly rejected/deferred (recorded here because the NO is as load-bearing as t
   time-series is logged. The completeness critic's #1 next move falls straight out of this: instrument
   `_reeval_loop` to PERSIST per-position top-5 concentration at entry + each re-check, converting the
   #1 free rug tell (a concentration RISE while held) from reasoned-about to measurable. Suite 241 → 242.
+
+---
+
+## WL3 — hold-time concentration capture (the WL2 critic's #1 next move)
+
+WL2's deferred lever (`conc_rise_cut_pct` calibration) and its completeness critic agreed on the same
+gap: the #1 free rug tell — a top-5 holder concentration RISE WHILE HELD (dev/insiders consolidating =
+distribution prep) — is the one signal the doctrine says separates the catastrophic whale-dump losses,
+yet the live `_reeval_loop` ACTED on each reading and then THREW IT AWAY. With no persisted trajectory,
+the threshold could never be calibrated from outcomes. This is a DATA-CAPTURE fix, not a threshold bet.
+
+- **Persist the trajectory.** New `hold_concentration` table (ts, mint, symbol, entry_conc_pct,
+  conc_pct, delta_pp, pnl_pct, action) + `Storage.log_hold_concentration`. `_reeval_loop` now computes
+  the rise/action ONCE and logs EVERY real reading (delta vs entry + the action it drove: conc_rise /
+  holders_cut / extend / derisk_conc) BEFORE acting — off the hot path, only when concentration is
+  known. Refactor is behavior-preserving (the cut/extend/derisk branches are unchanged; both
+  `reeval_action` and `_concentration_rose` already no-op on a None reading). The schema migration creates the
+  table on any old DB on next connect.
+- **Read it honestly.** New `backtest/conc_trajectory.py`: peak rise-above-entry per held mint, joined
+  to the realized (glitch-excluded) `trade_outcomes` book, then a candidate-threshold sweep (losers
+  caught vs winners wrongly cut, with precision) so `conc_rise_cut_pct` can be calibrated from data —
+  ADVISORY, never auto-applied. Degrades to "not enough hold-time data yet" until the running bot
+  accrues readings (the table ships empty; the signal needs a real Helius RPC + a known entry baseline).
+- **Why this and not the deferred threshold change directly.** WL2 REJECTED moving `conc_rise_cut_pct`
+  8→5 as unmeasured (1 observed firing, no hold-time series). The honest move is to instrument first,
+  let the data accrue, then calibrate — converting a NO-GO/DEFER into a testable lever rather than
+  guessing. Suite 242 → 244 (`test_conc_trajectory_analyze` + `test_hold_concentration_persistence`).

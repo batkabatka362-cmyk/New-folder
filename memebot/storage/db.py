@@ -207,11 +207,28 @@ CREATE TABLE IF NOT EXISTS readiness_log (
     labelable     INTEGER
 );
 
+-- WL3: hold-time top-5 concentration time-series — the #1 free rug tell is a concentration RISE
+-- WHILE HELD (dev/insiders consolidating = distribution prep). The live _reeval_loop acted on it but
+-- never PERSISTED it, so the conc_rise_cut_pct threshold could not be calibrated offline. Each reeval
+-- reading is logged here so the trajectory becomes measurable (join to trade_outcomes by mint for the
+-- rise-vs-outcome separation). delta_pp is NULL when entry concentration was unknown.
+CREATE TABLE IF NOT EXISTS hold_concentration (
+    ts             REAL,
+    mint           TEXT,
+    symbol         TEXT,
+    entry_conc_pct REAL,
+    conc_pct       REAL,
+    delta_pp       REAL,
+    pnl_pct        REAL,
+    action         TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_trades_mint ON trades(mint);
 CREATE INDEX IF NOT EXISTS idx_cand_mint ON candidates(mint);
 CREATE INDEX IF NOT EXISTS idx_obs_mint ON observations(mint);
 CREATE INDEX IF NOT EXISTS idx_obs_ts ON observations(ts);  -- P9: time-windowed reads + safe retention prune
 CREATE INDEX IF NOT EXISTS idx_outcomes_mint ON trade_outcomes(mint);
+CREATE INDEX IF NOT EXISTS idx_holdconc_mint ON hold_concentration(mint);
 """
 
 
@@ -352,6 +369,18 @@ class Storage:
             self._exec,
             "INSERT INTO equity(ts,equity_sol,sol_balance,realized_pnl,open_positions) VALUES(?,?,?,?,?)",
             (time.time(), equity_sol, sol_balance, realized_pnl, open_positions),
+        )
+
+    async def log_hold_concentration(self, *, mint, symbol, entry_conc_pct, conc_pct,
+                                     delta_pp, pnl_pct, action="") -> None:
+        """WL3: persist one reeval-cycle top-5 concentration reading for a held position so the
+        concentration-RISE-while-held signal (the #1 free rug tell) becomes offline-measurable +
+        the conc_rise_cut_pct threshold calibratable. delta_pp is None when entry conc was unknown."""
+        await asyncio.to_thread(
+            self._exec,
+            """INSERT INTO hold_concentration(ts,mint,symbol,entry_conc_pct,conc_pct,delta_pp,pnl_pct,action)
+                 VALUES(?,?,?,?,?,?,?,?)""",
+            (time.time(), mint, symbol, entry_conc_pct, conc_pct, delta_pp, pnl_pct, action),
         )
 
     async def log_verdict(self, *, mint, symbol, v, score: float = 0.0) -> None:
