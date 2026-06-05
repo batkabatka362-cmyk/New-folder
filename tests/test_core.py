@@ -1675,6 +1675,70 @@ def test_entry_latency_logged_on_open():
     bot.storage.close()
 
 
+def test_vision_parse_score_and_resolve_url():
+    # WL6: the pure helpers of the image scam-scorer (no network) — structured + chatty parse, clamp, junk.
+    from memebot.agent.vision import parse_score, resolve_url
+    assert parse_score('{"scam_score": 0.8, "reason": "fake metamask"}') == 0.8
+    assert parse_score('the verdict: {"scam_score": 1.5}') == 1.0    # chatty wrap + clamp >1
+    assert parse_score('{"scam_score": -2}') == 0.0                  # clamp <0
+    assert parse_score('{"scam_score": "x"}') is None               # non-numeric -> unreadable
+    assert parse_score('not json at all') is None and parse_score('') is None
+    gw = "https://ipfs.io/ipfs/"
+    assert resolve_url("ipfs://CID/img.png", gw) == "https://ipfs.io/ipfs/CID/img.png"
+    assert resolve_url("https://x.com/a.png", gw) == "https://x.com/a.png"   # http passthrough
+    assert resolve_url("", gw) == ""
+
+
+def test_vision_scorer_disabled_empty_and_cached():
+    # WL6: the scorer is OFF by default, no-ops on empty input, and scores each mint at most once (cache).
+    import asyncio
+    from memebot.agent.vision import ImageScamScorer
+    off = ImageScamScorer(enabled=False, host="http://x", model="llava")
+    assert asyncio.run(off.score("M", "ipfs://x")) is None       # disabled -> None, no network touched
+    on = ImageScamScorer(enabled=True, host="http://x", model="llava")
+    assert asyncio.run(on.score("M", "")) is None                # empty uri -> None
+    assert asyncio.run(on.score("", "ipfs://x")) is None         # empty mint -> None
+    calls = []
+    async def fake(uri):
+        calls.append(uri); return 0.7
+    on._score = fake                                             # stub the network path
+    assert asyncio.run(on.score("M", "ipfs://x")) == 0.7
+    assert asyncio.run(on.score("M", "ipfs://x")) == 0.7         # second call served from cache
+    assert len(calls) == 1
+
+
+def test_image_scam_score_logged_on_open():
+    # WL6: a real open records the vision image scam-score on entry_features as a dataset-ONLY key
+    # (LOG-only — no gate uses it). The scorer is injected (OFF by default in production).
+    import asyncio
+    from memebot.agent.schema import Verdict
+    from memebot.config import RiskLimits
+    from memebot.filter.features import FEATURE_NAMES
+    from memebot.main import Bot
+    bot = Bot(Settings(db_path=":memory:", llm_backend="off", require_data_backed_setup=True,
+                       risk=RiskLimits(max_positions=2)))
+    bot.storage.connect()
+    bot.executor = _FakeBuyExec()
+
+    class BuyBrain:
+        async def decide(self, c, self_state=None):
+            return Verdict(action="buy", mode=c.mode, conviction=0.9, size_pct=0.5, reasoning="x")
+    bot.brain = BuyBrain()
+
+    class FakeScorer:                                            # stands in for the vision call
+        async def score(self, mint, uri):
+            return 0.88 if uri else None
+    bot.image_scorer = FakeScorer()
+    c = Candidate(mint="H1", symbol="H1"); c.score = 0.9; c.mode = MODE_HOLD
+    c.liquidity_usd = 12000.0; c.price_usd = 1e-4; c.price_sol = 1e-3
+    st = bot.registry.get_or_create("H1"); st.uri = "ipfs://scam-art"
+    asyncio.run(bot._decide_and_open([c], {}))
+    pos = bot.portfolio.positions.get("H1")
+    assert pos is not None and pos.entry_features.get("image_scam_score") == 0.88
+    assert "image_scam_score" not in FEATURE_NAMES              # dataset-only: never a model/scoring column
+    bot.storage.close()
+
+
 def test_miss_learn_cross_pass_one_row_per_mint():
     # the same mint observed in two passes must record ONE missed_winner (token-level), but BOTH
     # observations get judged (no re-fetch). Exercises the `seen` pre-seed across passes.

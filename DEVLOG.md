@@ -777,3 +777,36 @@ before more exit micro-tuning." Done. The audit is the deliverable; it confirms 
   entry, and the latency cost is real but modest and not closeable without speed/MEV infra we lack.
   This is the loss-minimisation ceiling the literature predicts, now audited from the entry side too —
   not a bug to tune away. Suite 245 → 246 (`test_entry_latency_logged_on_open`).
+
+---
+
+## WL6 — the IMAGE / branding scam layer (the user's visual edge) — measured, fixed, and a vision scorer
+
+The user pushed back hard: "I can avoid these rugs at a glance from the IMAGE / name / DUPLICATION, yet
+the bot reads the backend data and still loses — the filter is bad." A fair, sharp point: every signal
+the bot uses is on-chain/market; it had NEVER looked at the token's name/image. Investigated honestly.
+
+- **The data CONFIRMS the duplication is massive** — 9,635 distinct name+symbol brandings are reused
+  across **55,677 of 76,351 named mints (~73%)**, including blatant impersonations (metamask ×258,
+  banana dad ×614, daddy ×249). The user is right that this is the texture of pump.fun.
+- **But name+symbol reuse does NOT separate on the tokens we TRADE.** Branding-reuse AUC(rug>winner) =
+  0.41 on the 250 classified mints (winners are reused MORE — popular memes pump), and on our 88 actual
+  buys the LOSSES are the LOW-reuse cohort (reuse≤5: net −1.17 SOL / 38% win) while high-reuse buys are
+  break-even (reuse>25: +0.00 / 50%). Why: our market gates (data-backed-setup, liquidity, DexScreener-
+  indexing) already filter the launch-time dupe spam before it could ever reach the buy path — so a
+  branding-reuse VETO would CUT the neutral cohort and KEEP the bleeders. Refused it.
+- **Found + fixed a real bug:** `name_reuse_count` was computed onto `c.features` but never copied into
+  `_features_json`, so it logged as dark (all-zero) for the entire history — the separation read it as a
+  flat 0. Now carried (dataset-only key) so the relation is actually measurable going forward.
+- **The IMAGE is the untested dimension a count can't capture** (a NOVEL-name token — our losing
+  low-reuse cohort — can still have an obvious-scam IMAGE). Per the user's choice, built a VISION
+  scam-scorer: `agent/vision.py` `ImageScamScorer` sends a GATE-PASSED candidate's image (resolved from
+  the launch `uri` → metadata JSON → image, ipfs:// gateway-aware) to a vision model (local Ollama
+  `llava` = FREE, or a cloud base URL) for a 0..1 scam_score (structured output). Threaded `uri` through
+  `NewTokenEvent → TokenState → _try_open`; the score rides `entry_features` as `image_scam_score`.
+- **LOG-ONLY (the user's call + the doctrine).** No veto: it's cost-gated to buys (a few/min), cached
+  per mint, and FULLY defensive (any failure → None, never blocks a buy or raises). OFF by default
+  (needs `ollama pull llava` or a cloud endpoint). The image→outcome separation is calibrated forward
+  from real labels before any veto is even considered — measure first, like WL3/WL5. Config:
+  `image_scam_enabled` / `image_scam_host` / `image_scam_model` / `image_scam_timeout_s` /
+  `image_ipfs_gateway` / `image_scam_max_bytes`. Suite 246 → 249.

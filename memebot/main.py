@@ -40,6 +40,7 @@ from .feed.dexscreener import DexScreenerClient
 from .feed.helius_rpc import HeliusRPC, largest_funder_cluster
 from .feed.jupiter import JupiterClient
 from .feed.rugcheck import RugCheckClient
+from .agent.vision import ImageScamScorer
 from .feed.pumpportal_ws import PumpPortalFeed
 from .feed.watchlist import WatchlistManager
 from .filter import rules
@@ -82,6 +83,14 @@ class Bot:
         self.jupiter = JupiterClient(settings.jupiter_base_url) if settings.honeypot_check_enabled else None
         # B1: RugCheck.xyz risk cross-check (free, no key); None = disabled.
         self.rugcheck = RugCheckClient(settings.rugcheck_base_url) if settings.rugcheck_enabled else None
+        # WL6: vision IMAGE scam-scorer (the user's visual edge). LOG-only; None = disabled. Reuses the
+        # Ollama host by default (local llava = free) or a configured cloud vision base URL.
+        self.image_scorer = ImageScamScorer(
+            enabled=settings.image_scam_enabled,
+            host=(settings.image_scam_host or settings.ollama_host),
+            model=settings.image_scam_model, timeout_s=settings.image_scam_timeout_s,
+            gateway=settings.image_ipfs_gateway, max_image_bytes=settings.image_scam_max_bytes,
+        ) if settings.image_scam_enabled else None
         self.portfolio = Portfolio(settings.risk.initial_sol)
         self.exit_params = settings.exit       # env-overridable defensive profile
         self.risk = RiskManager(settings)
@@ -197,6 +206,13 @@ class Bot:
         # creator-history vs outcome separation can be studied + a threshold calibrated from labels.
         if "creator_launches" in c.features:
             feats["creator_launches"] = c.features["creator_launches"]
+        # BUGFIX: name_reuse_count (branding-duplication tell) was computed onto c.features but NEVER
+        # copied here, so it logged as absent/0 for the entire history — the dataset/separation read it
+        # as dark. Carry it (dataset-only key, like creator_launches) so the branding-reuse vs outcome
+        # relation is finally measurable. (Validation to date: name+symbol reuse does NOT separate rugs
+        # on our TRADED set — we lose on LOW-reuse mints; the gates already filter launch-time dupe spam.)
+        if "name_reuse_count" in c.features:
+            feats["name_reuse_count"] = c.features["name_reuse_count"]
         # P7: log the live TRADE-FLOW signal (sells-dominating-on-the-tape) as non-FEATURE_NAMES keys
         # alongside every observation. This is the user's "experienced trader senses the rug from the
         # trades" tell turned into DATA: accumulated against forward outcomes so P4 can LEARN the
@@ -680,6 +696,15 @@ class Bot:
         _st = self.registry.get(c.mint)
         if _st is not None:
             entry_feats["entry_latency_s"] = round(_st.age_s(), 1)   # first-seen -> buy (operational entry latency)
+            # WL6 (the user's IMAGE edge, LOG-ONLY): score the token's image 0..1 for scam-look via a vision
+            # model. Cost-gated (only here, on a gate-passed buy), cached per mint, fully defensive (None on
+            # any failure). Rides entry_features as a dataset-only key so image->outcome is calibrated
+            # forward — never a blind veto (name+symbol reuse did NOT separate on our buys; the IMAGE is the
+            # untested dimension a count can't capture).
+            if self.image_scorer is not None:
+                iss = await self.image_scorer.score(c.mint, _st.uri)
+                if iss is not None:
+                    entry_feats["image_scam_score"] = iss
         if not self.portfolio.apply_buy(
             fill, symbol=c.symbol, mode=mode,
             tp_override=(verdict.tp_pct or None), sl_override=(verdict.sl_pct or None),
@@ -1435,6 +1460,8 @@ class Bot:
                 self.jupiter = await stack.enter_async_context(self.jupiter)   # A2 honeypot quote client
             if self.rugcheck is not None:
                 self.rugcheck = await stack.enter_async_context(self.rugcheck)  # B1 RugCheck cross-check
+            if self.image_scorer is not None:
+                self.image_scorer = await stack.enter_async_context(self.image_scorer)  # WL6 vision scam-scorer
             if self.helius is not None:
                 self.helius = await stack.enter_async_context(self.helius)
                 # W3: honestly report whether holder-concentration safety is actually LIVE. On the

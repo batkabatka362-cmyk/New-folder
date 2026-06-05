@@ -286,6 +286,17 @@ class Settings:
     llm_parallel: int = 3                    # bounded concurrency for brain.decide() per eval cycle (1 = serial, today's behavior). Speeds up catching fresh coins by removing head-of-line blocking; set to your real Ollama OLLAMA_NUM_PARALLEL.
     llm_timeout_s: float = 60.0              # local models are seconds/call
 
+    # WL6 — IMAGE scam-scorer (the user's visual edge: spot a scam by its IMAGE). A vision model scores a
+    # GATE-PASSED candidate's image 0..1; LOG-ONLY (rides entry_features as `image_scam_score`, no veto).
+    # OFF by default: needs a pulled vision model (`ollama pull llava`) or a cloud vision endpoint. Cost-
+    # gated to candidates we're about to buy (a few/min), so even a paid backend stays cheap.
+    image_scam_enabled: bool = False
+    image_scam_host: str = ""                # "" => reuse ollama_host; or a cloud vision base URL
+    image_scam_model: str = "llava"          # Ollama vision model (llava / llama3.2-vision / bakllava)
+    image_scam_timeout_s: float = 30.0       # a vision call is slow; keep it off the critical path via caching
+    image_ipfs_gateway: str = "https://ipfs.io/ipfs/"   # resolve ipfs:// metadata/image refs
+    image_scam_max_bytes: int = 5_000_000    # skip absurdly large images (defensive)
+
     # Phase 2 — GBM scorer (rule scorer is used until a model is trained)
     gbm_model_path: str = "gbm_model.txt"
     gbm_entry_threshold: float = 0.40       # GBM prob scale. Val sweep: 0.40 => precision 0.40 (2.1x the 0.19 base), 0.5 starves (4/81). Re-tune as data grows.
@@ -557,6 +568,12 @@ class Settings:
             ollama_confirm_model=_str("OLLAMA_CONFIRM_MODEL", "qwen3:8b"),
             llm_parallel=_int("LLM_PARALLEL", 3),
             llm_timeout_s=_float("LLM_TIMEOUT_S", 60.0),
+            image_scam_enabled=_bool("IMAGE_SCAM_ENABLED", False),     # WL6: vision image scam-scorer (LOG-only)
+            image_scam_host=_str("IMAGE_SCAM_HOST", ""),               # "" => reuse OLLAMA_HOST
+            image_scam_model=_str("IMAGE_SCAM_MODEL", "llava"),
+            image_scam_timeout_s=_float("IMAGE_SCAM_TIMEOUT_S", 30.0),
+            image_ipfs_gateway=_str("IMAGE_IPFS_GATEWAY", "https://ipfs.io/ipfs/"),
+            image_scam_max_bytes=_int("IMAGE_SCAM_MAX_BYTES", 5_000_000),
             gbm_model_path=_str("GBM_MODEL_PATH", "gbm_model.txt"),
             gbm_entry_threshold=_float("GBM_ENTRY_THRESHOLD", 0.40),
             gbm_balance_classes=_bool("GBM_BALANCE_CLASSES", True),

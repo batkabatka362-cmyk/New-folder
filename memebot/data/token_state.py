@@ -33,6 +33,7 @@ class TokenState:
         self.mint = mint
         self.symbol = ""
         self.name = ""
+        self.uri = ""                  # WL6: off-chain metadata URI (-> image) for the vision scam-scorer
         self.creator = ""
         self.created_ts = time.time()
         self.last_ts = self.created_ts
@@ -61,6 +62,7 @@ class TokenState:
     def apply_new_token(self, ev: NewTokenEvent) -> None:
         self.symbol = ev.symbol or self.symbol
         self.name = ev.name or self.name
+        self.uri = ev.uri or self.uri                  # WL6: carry the metadata URI -> image scam-scorer
         self.creator = ev.creator or self.creator
         self.pool = ev.pool or self.pool
         self.market_cap_sol = ev.market_cap_sol or self.market_cap_sol
