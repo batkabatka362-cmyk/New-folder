@@ -748,8 +748,8 @@ def test_take_initial_recovers_principal_and_rides_house_money():
     pf.apply_buy(Fill("m", "buy", 100.0, 1.0, 0.01, 0.0, 0.0), symbol="X", mode="hold")   # 100 tok @ 0.01 = 1.0 SOL
     pos = pf.positions["m"]
     p = ExitParams()
-    assert pos.should_take_initial(0.015, p) is False        # +50% < 2x
-    assert pos.should_take_initial(0.02, p) is True          # 2x
+    assert pos.should_take_initial(0.012, p) is False        # +20% < the WL7 +30% (1.3x) bar
+    assert pos.should_take_initial(0.014, p) is True         # +40% >= the +30% bar -> recover principal (was 2x pre-WL7)
     f = pos.derisk_fraction(0.02, 0.0, p.derisk_max_frac)    # sell_cost 0 -> f = 0.5 (recover full principal)
     assert abs(f - 0.5) < 1e-9
     pf.apply_sell(Fill("m", "sell", pos.qty * f, pos.qty * f * 0.02, 0.02, 0.0, 0.0), reason="take_initial")
@@ -871,6 +871,25 @@ def test_conc_trajectory_analyze():
     assert s5["losers_caught"] == 2 and s5["winners_cut"] == 0 and s5["precision"] == 1.0  # +5pp catches both losers, no winner
     s8 = {r["threshold"]: r for r in a["sweep"]}[8.0]
     assert s8["losers_caught"] == 1 and s8["winners_cut"] == 0      # +8pp catches only the +9pp loser
+
+
+def test_loss_decomp_buckets():
+    """WL7: split net-losers into EXIT-ADDRESSABLE (pumped >= threshold then faded) vs SELECTION
+    (never pumped) — the user's strategy lens (exits save the faders; selection is the rest)."""
+    from memebot.backtest.loss_decomp import bucket_losers, path_peak
+    assert path_peak([(0.0, 1.0), (1.0, 1.5), (2.0, 0.8)]) == 0.5   # max forward return
+    assert path_peak([(0.0, 1.0), (1.0, 0.9)]) == 0.0               # never rose
+    assert path_peak([(0.0, 0.0)]) == 0.0                           # bad entry price
+    pairs = [(0.6, +0.2),       # a WINNER -> ignored (only net<0 is decomposed)
+             (0.05, -0.5),      # never pumped -> SELECTION problem
+             (0.40, -0.3),      # pumped +40% then a loss -> EXIT-addressable
+             (1.2, -0.1)]       # pumped +120% then a loss -> EXIT-addressable
+    d = bucket_losers(pairs, peak_threshold=0.30)
+    assert d["n_paths"] == 4 and d["n_losers"] == 3
+    assert d["addressable"]["n"] == 2 and abs(d["addressable"]["sol"] + 0.4) < 1e-9
+    assert d["selection"]["n"] == 1 and abs(d["selection"]["sol"] + 0.5) < 1e-9
+    by = {b["label"]: b for b in d["buckets"]}
+    assert by["never +10%"]["n"] == 1 and by["+30-50%"]["n"] == 1 and by[">+100%"]["n"] == 1
 
 
 # ── holder funding-cluster (free-data concealed-concentration) ─────────────────

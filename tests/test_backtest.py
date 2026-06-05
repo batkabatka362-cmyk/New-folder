@@ -322,9 +322,11 @@ def test_exitlab_scale_out_legs():
     assert abs(replay_exit(crash, "scalp", no_partial)[1] - 0.70) < 1e-9
     # N5 proactive derisk: a +35% spike (below the 40% scalp TP, so no full exit) then a crash. Baseline
     # takes only the P3 half-partial; the proactive derisk recovers the WHOLE principal -> nets more.
+    # Isolate it from the WL7 take-initial (now 1.3x, which would itself fire at +35% and erase the gap).
+    base = replace(ep, take_initial_pct=0.0)
     spike = [(0.0, 1.0), (2.0, 1.35), (4.0, 0.5)]
-    derisk = replace(ep, derisk_proactive_pct=0.30)
-    base_mult = replay_exit(spike, "scalp", ep, sell_cost=0.05)[1]
+    derisk = replace(base, derisk_proactive_pct=0.30)
+    base_mult = replay_exit(spike, "scalp", base, sell_cost=0.05)[1]
     drk_mult = replay_exit(spike, "scalp", derisk, sell_cost=0.05)[1]
     assert drk_mult > base_mult                               # principal-recovery banked more before the dump
 

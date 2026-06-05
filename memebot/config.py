@@ -699,7 +699,7 @@ class Settings:
                 derisk_tp_pct=_float("DERISK_TP_PCT", 0.08),
                 derisk_max_frac=_float("DERISK_MAX_FRAC", 0.9),
                 derisk_proactive_pct=_float("DERISK_PROACTIVE_PCT", 0.0),
-                take_initial_pct=_float("TAKE_INITIAL_PCT", 1.0),   # A3: recover principal at +100% (2x); 0 disables
+                take_initial_pct=_float("TAKE_INITIAL_PCT", 0.3),   # WL7: recover principal at +30% (1.3x) — was 2x; user "bank principal at 1-2x" + addressable-fader decomposition. 0 disables.
                 sell_pressure_bsr=_float("SELL_PRESSURE_BSR", 0.7),
                 sell_pressure_cut=_bool("SELL_PRESSURE_CUT", False),
             ),

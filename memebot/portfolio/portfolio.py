@@ -48,10 +48,16 @@ class ExitParams:
     # A3 TAKE-INITIAL (the spec's #1 survival rule): once up >= this, recover the PRINCIPAL (sell enough
     # to bank the original cost basis) and ride the remainder as risk-free HOUSE MONEY — so a later rug
     # can never zero a winner. OWN latch (initial_taken), so it COMPOSES with the early P3 partial rather
-    # than being preempted: a small bank at partial_tp_pct, then full principal recovered here at 2x.
-    # Default 1.0 = +100% = 2x (a high, conservative bar: rarely fires, barely caps upside since ~half
-    # rides). 0 disables. PRICE-ONLY (faithfully replayable in the exitlab).
-    take_initial_pct: float = 1.0
+    # than being preempted: a small bank at partial_tp_pct, then full principal recovered here.
+    # WL7 (user strategy: ">95% of coins fail — don't predict the rug, RECOVER PRINCIPAL at 1-2x so an
+    # immediate loss becomes impossible, then ride the rest"): bar lowered 1.0 (2x) -> 0.3 (1.3x). A
+    # loss-decomposition showed 17% of our net-losers (~5.7 SOL) PUMPED >=+30% then GAP-faded to a loss —
+    # those are saved by banking principal at +30% before the gap (the other 68% never pump = a SELECTION
+    # problem, not an exit one). exitlab over 243 paths: net/median improve MONOTONICALLY as the bar drops
+    # (2x -15.36/+0.040 -> 1.3x -14.69/+0.043), survival-first; net gain is modest/partly outlier-driven
+    # (net-minus-top3 +0.145, 55 improved/19 worsened) so this is a LOSS-AVOIDANCE choice, not a net edge.
+    # 0 disables. PRICE-ONLY (faithfully replayable in the exitlab).
+    take_initial_pct: float = 0.3
     sell_pressure_bsr: float = 0.7      # buy/sell ratio (DexScreener h1) below this on a HELD position, with price rolling over = sells dominating = a rug worked on the tape (the user's "ariljaan deer rug" tell). 0 disables.
     sell_pressure_cut: bool = False     # also CUT a non-winning held position on sell-pressure (OFF: hourly bsr is noisy + the SL/liq_collapse own the deep downside; on = an early rug-tape exit)
 

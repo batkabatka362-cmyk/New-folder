@@ -810,3 +810,34 @@ the bot uses is on-chain/market; it had NEVER looked at the token's name/image. 
   from real labels before any veto is even considered — measure first, like WL3/WL5. Config:
   `image_scam_enabled` / `image_scam_host` / `image_scam_model` / `image_scam_timeout_s` /
   `image_ipfs_gateway` / `image_scam_max_bytes`. Suite 246 → 249.
+
+---
+
+## WL7 — early principal-recovery (the user's "bank at 1-2x") + the exits-vs-selection decomposition
+
+The user's strategy, stated plainly: ">95% of coins fail (scam/rug/dump/honeypot/freeze/sharp-drop) —
+don't try to PREDICT the rug; the moment a position is at 1-2x, RECOVER the principal so an immediate
+loss becomes impossible, then decide whether to ride the rest. That makes the loss probability drop
+sharply." Survival-first to the core — and it exposed a question we hadn't sized: how much of our loss
+is even FIXABLE by exits?
+
+- **`backtest/loss_decomp.py` (new) — the honest split.** Replays every logged path through the REAL
+  exit ladder, finds the net-losers, buckets them by the PEAK they reached. The verdict on 244 paths /
+  109 losers: **only ~17% (18 losers, −5.5 SOL) PUMPED ≥+30% then GAP-faded to a loss** — those are
+  EXIT-addressable (bank principal earlier). **~83% (91 losers, −45.6 SOL) NEVER pumped** — a SELECTION
+  problem no exit can touch (you can't bank a gain that never happened). This is the load-bearing
+  reframe: exits recover a small bounded slice; the bulk is the wall the IMAGE / branding / filter-funnel
+  work (WL6 +) targets. "Don't tune exits to fix a selection problem."
+- **`take_initial_pct` 1.0 (2x) → 0.3 (1.3x)** — the user's "recover principal at 1-2x", calibrated to
+  the addressable cohort (peaks ≥+30%, so bank by +30% before the gap-down). exitlab over 243 paths:
+  net + median improve MONOTONICALLY as the bar drops (2x −15.36/+0.040 → 1.3x −14.69/+0.043) — NOT the
+  non-monotonic p-hacking signature WL4 rejected `trail` for. Honest caveat: the net gain is modest and
+  partly outlier-driven (net-minus-top-3 +0.145, 55 improved / 19 worsened, win-rate flat at 55%), so
+  this is a SURVIVAL-FIRST loss-avoidance choice (recover principal earlier on the faders), NOT a claimed
+  net edge. Composes with the WL2 partial (70% banked at +15%) — together they bank most of the position
+  early and recover the rest by +30%, leaving a thin house-money tail that still rides a 200x. Reconciles
+  with WL4 (which rejected `take_initial`=1.5x on a single outlier-driven net point): the monotonic trend,
+  the independent loss-decomposition, and the user's survival objective now justify the lower bar.
+- **The strategic through-line:** WL7 confirms exits are largely DONE (WL2 partial + breakeven trail +
+  WL7 early take-initial handle the ~17% that pump). The remaining ~83% is SELECTION — which is exactly
+  the user's IMAGE/branding edge (WL6) and the filter-funnel/timing ideas still ahead. Suite 249 → 250.
