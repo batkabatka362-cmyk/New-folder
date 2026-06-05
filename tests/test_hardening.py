@@ -997,6 +997,27 @@ def test_buyer_intel_smart_dumper_confluence():
     bi.record_buyers("m", ["A", "A", "", None]); assert bi._pending["m"] == ["A"]   # dedups + ignores empty
 
 
+def test_signal_separation_pairs_and_auc():
+    """WL9: the generic LOG-only-signal separation monitor — pairs_for extracts (value, won) from
+    entry_features; separate() orients the AUC so >0.5 means the signal points the EXPECTED way."""
+    from memebot.backtest.signal_separation import pairs_for, separate
+    rows = [
+        ("W1", 0.4, 0.4, '{"smart_buyer_count": 3}'),    # winner, more smart early-buyers
+        ("W2", 0.2, 0.2, '{"smart_buyer_count": 2}'),    # winner
+        ("L1", -0.3, -0.3, '{"smart_buyer_count": 0}'),  # loser, none
+        ("L2", -0.5, -0.5, '{"smart_buyer_count": 1}'),  # loser
+        ("U1", -0.1, -0.1, '{}'),                        # no key -> excluded
+        ("G1", 99.0, 50.0, '{"smart_buyer_count": 5}'),  # >20x glitch -> excluded
+    ]
+    assert sorted(pairs_for(rows, "smart_buyer_count")) == sorted([(3.0, True), (2.0, True), (0.0, False), (1.0, False)])
+    r = separate(pairs_for(rows, "smart_buyer_count"), higher_is_worse=False)   # more smart -> WINNERS higher
+    assert r["n"] == 4 and r["n_win"] == 2 and r["n_lose"] == 2 and r["auc"] == 1.0   # {3,2} all > {0,1}
+    assert r["win_med"] == 2.5 and r["lose_med"] == 0.5
+    rows2 = [("A", 0.1, 0.1, '{"x": 1}'), ("B", -0.1, -0.1, '{"x": 1}'),       # x is flat across win/lose
+             ("C", 0.1, 0.1, '{"x": 2}'), ("D", -0.1, -0.1, '{"x": 2}')]
+    assert abs(separate(pairs_for(rows2, "x"), higher_is_worse=True)["auc"] - 0.5) < 1e-9   # no separation
+
+
 # ── brain audit (is the LLM brain used / does it earn its keep?) ───────────────
 def test_brain_audit_usage_and_ab():
     """deferred-5 #1: brain-usage rate (brain vs rule decisions) + per-source CLEAN-book A/B."""

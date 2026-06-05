@@ -18,7 +18,7 @@ python -m memebot.backtest.simulate  # offline backtest over logged candidates (
 python -m memebot.backtest.replay    # logged-candidate funnel stats
 ```
 
-The test suite is currently 254 green and must stay green. `run_tests.py` discovers every `test_*` function under `tests/` and needs no third-party deps; keep it that way (see Conventions).
+The test suite is currently 255 green and must stay green. `run_tests.py` discovers every `test_*` function under `tests/` and needs no third-party deps; keep it that way (see Conventions).
 
 Honest realized PnL (read THIS for the go-live gate, never the in-memory/`trade_outcomes` number — one pricing-glitch fill can be ~100% of reported profit):
 
@@ -38,6 +38,7 @@ python -m memebot.backtest.winner_loss                                 # WL1: wh
 python -m memebot.backtest.conc_trajectory                             # WL3: does a top-5 concentration RISE WHILE HELD (the #1 free rug tell) separate rugs from winners? reads the hold_concentration time-series, peak-rise-per-mint vs the realized book, sweeps conc_rise_cut_pct candidates. ADVISORY; "no data yet" until the running bot accrues hold-time readings (needs a real Helius RPC).
 python -m memebot.backtest.loss_decomp [--peak 0.30]                   # WL7: of our net-LOSSES, how much is EXIT-addressable (pumped >= +30% then faded -> bank principal earlier) vs a SELECTION problem (never pumped -> only NOT entering avoids it, the image/funnel work)? Sizes the exits-vs-selection split. Current: ~17% addressable / ~83% selection.
 python -m memebot.backtest.image_separation                            # WL6 read-side: does the vision IMAGE scam-score separate rugs from winners on the realized book? AUC(loser>winner) + a veto-threshold sweep. "no data yet" until the scorer is enabled (`ollama pull llava`, IMAGE_SCAM_ENABLED=true) + buys accrue a score. The validation loop for the user's visual edge — the ONE untested modality (every on-chain free-data signal separates at AUC~0.5).
+python -m memebot.backtest.signal_separation                           # WL9: the single read-out for ALL LOG-only winner/rug signals (image_scam_score, smart/dumper_buyer_count, early_buyers, name_reuse_count, entry_latency_s) — per-signal n + winner/loser medians + ORIENTED AUC over trade_outcomes. Run it as buys accrue: AUC>=0.6 = a real separator that earns a calibrated veto (the win-rate lever); ~0.5 = noise, stays LOG-only.
 ```
 
 GBM activation (only when there is labeled data — needs `lightgbm numpy pyarrow`):
