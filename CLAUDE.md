@@ -18,7 +18,7 @@ python -m memebot.backtest.simulate  # offline backtest over logged candidates (
 python -m memebot.backtest.replay    # logged-candidate funnel stats
 ```
 
-The test suite is currently 244 green and must stay green. `run_tests.py` discovers every `test_*` function under `tests/` and needs no third-party deps; keep it that way (see Conventions).
+The test suite is currently 245 green and must stay green. `run_tests.py` discovers every `test_*` function under `tests/` and needs no third-party deps; keep it that way (see Conventions).
 
 Honest realized PnL (read THIS for the go-live gate, never the in-memory/`trade_outcomes` number — one pricing-glitch fill can be ~100% of reported profit):
 

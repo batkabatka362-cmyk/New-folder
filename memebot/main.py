@@ -861,6 +861,15 @@ class Bot:
                         f = pos.derisk_fraction(price, sell_cost_pct(self.s.fees), self.exit_params.derisk_max_frac)
                         if f > 0.0:
                             await self._take_partial(mint, frac=f, tag="take_initial", arm=True, latch="initial")
+                    elif pos.should_take_proactive_derisk(price, self.exit_params):
+                        # N5 (WL4): wire the previously exitlab-ONLY proactive principal-recovery into the
+                        # LIVE loop so the studied knob is real (it was dead config — modeled in exitlab,
+                        # never connected). Banks the full principal at derisk_proactive_pct and free-rolls
+                        # the rest; shares the P3-partial latch (mutually exclusive with the clean partial,
+                        # matching exitlab). OFF by default (0.0) — wiring changes no behavior until enabled.
+                        f = pos.derisk_fraction(price, sell_cost_pct(self.s.fees), self.exit_params.derisk_max_frac)
+                        if f > 0.0:
+                            await self._take_partial(mint, frac=f, tag="derisk_proactive", arm=True, latch="partial")
                     elif pos.should_take_partial(price, self.exit_params):
                         # P3: not a full exit, but up enough to bank a partial and free-roll the rest
                         await self._take_partial(mint)

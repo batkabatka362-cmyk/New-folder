@@ -44,7 +44,7 @@ class ExitParams:
     # (the most literal "scale out FAST to bank profit, free-roll the rest" doctrine). 0 = OFF (the live
     # derisk stays risk-gated). PRICE-ONLY, so it is faithfully replayable in the exitlab — set it from
     # the exitlab sweep, never by feel (aggressive early de-risk caps the rare 10x; it's give-back MITIGATION).
-    derisk_proactive_pct: float = 0.0   # proactive principal-recovery trigger (0 = off; e.g. 0.30 = bank at +30%) — the exitlab-studied SHARED-latch variant (preempts the P3 partial)
+    derisk_proactive_pct: float = 0.0   # proactive principal-recovery trigger (0 = off; e.g. 0.30 = bank at +30%) — the SHARED-latch variant (preempts the P3 partial). WL4: now wired LIVE (was exitlab-only/dead); kept OFF by default — the exitlab sweep's gain over the partial was net+median but win-rate-neutral + 55% top-3-concentrated, so enable only after forward confirmation, never by feel.
     # A3 TAKE-INITIAL (the spec's #1 survival rule): once up >= this, recover the PRINCIPAL (sell enough
     # to bank the original cost basis) and ride the remainder as risk-free HOUSE MONEY — so a later rug
     # can never zero a winner. OWN latch (initial_taken), so it COMPOSES with the early P3 partial rather
@@ -101,6 +101,15 @@ class Position:
         if self.initial_taken or params.take_initial_pct <= 0.0:
             return False
         return self.pnl_pct(price_sol) >= params.take_initial_pct
+
+    def should_take_proactive_derisk(self, price_sol: float, params: ExitParams) -> bool:
+        """N5 (WL4): bank the full PRINCIPAL proactively once up >= derisk_proactive_pct, WITHOUT
+        waiting for a risk tell — then free-roll the rest as house money. Shares the P3-partial latch
+        (mutually exclusive with the clean partial, exactly as exitlab models it). OFF by default
+        (derisk_proactive_pct=0.0); price-only, so it stays faithfully exitlab-replayable."""
+        if self.partial_taken or params.derisk_proactive_pct <= 0.0:
+            return False
+        return self.pnl_pct(price_sol) >= params.derisk_proactive_pct
 
     def derisk_fraction(self, price_sol: float, sell_cost_pct: float, max_frac: float = 0.9) -> float:
         """P7: the fraction of qty to sell NOW so net proceeds recover the remaining cost basis (the

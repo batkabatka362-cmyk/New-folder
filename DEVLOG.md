@@ -715,3 +715,30 @@ the threshold could never be calibrated from outcomes. This is a DATA-CAPTURE fi
   8→5 as unmeasured (1 observed firing, no hold-time series). The honest move is to instrument first,
   let the data accrue, then calibrate — converting a NO-GO/DEFER into a testable lever rather than
   guessing. Suite 242 → 244 (`test_conc_trajectory_analyze` + `test_hold_concentration_persistence`).
+
+---
+
+## WL4 — give-back levers swept (the WL2 critic's #2): an HONEST no-default-change + a dead-knob wired
+
+Swept the two PRICE-ONLY (exitlab-replayable) give-back-mitigation levers the WL2 exit study skipped:
+`take_initial_pct` (principal-recovery bar, default 1.0 = 2x) and `derisk_proactive_pct` (proactive
+principal bank, default 0.0 = OFF). The honest verdict: **no default change is justified** — but the
+sweep surfaced a real code gap worth fixing.
+
+- **`take_initial_pct` 1.0 → 0.5: REJECTED (overfit).** Lowering the bar to 1.5x nudges win 55→56% and
+  net +0.574, but **91% of that net gain is 3 paths** (net-minus-top-3 = +0.052) and it touches only
+  31/238 paths — the same outlier-concentration red flag WL2 rejected `trail_after_arm_pct` for. Keep
+  2x: a high, conservative bar that barely caps the rare big winner.
+- **`derisk_proactive_pct`: the robust lever WAS a DEAD KNOB.** At 0.20 it was the sweep's best (net
+  −12.88 vs −13.91, median +0.040→+0.047, and — unlike take_initial — net-minus-top-3 still +0.46 with
+  63/23 paths improved/worsened, i.e. NOT outlier-driven). But it was modeled ONLY in `exitlab` and
+  never wired into the live manage loop (A3 had found the same and added `take_initial` instead) — so
+  setting it did nothing live. **Fix: wired it into `_manage_loop`** via a new
+  `Position.should_take_proactive_derisk` (shares the P3-partial latch, mutually exclusive with the
+  clean partial, exactly as exitlab models), inserted between the take-initial and partial branches.
+- **Kept OFF by default (0.0) — wiring changes NO behavior.** The exitlab gain is net+median but
+  WIN-RATE-NEUTRAL (the user's stated goal is win-rate) and it caps big-winner upside (give-back
+  mitigation by design), and 55% of even its net edge is top-3-concentrated. So the disciplined call is
+  to make the studied knob REAL (env-overridable, no longer misleading dead config) but leave enabling
+  it to forward confirmation, never by feel. Honest outcome: a code-quality fix + a measurement that
+  PREVENTED an overfit default change. Suite 244 → 245 (`test_proactive_derisk_gate_off_by_default_and_fires_when_enabled`).

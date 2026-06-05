@@ -760,6 +760,23 @@ def test_take_initial_recovers_principal_and_rides_house_money():
     assert pos.should_take_initial(0.02, p) is False and pf.positions["m"].should_take_partial(0.02, p) is True
 
 
+def test_proactive_derisk_gate_off_by_default_and_fires_when_enabled():
+    """WL4: derisk_proactive_pct was modeled in exitlab but DEAD in the live loop (unwired). The manage
+    loop now gates on should_take_proactive_derisk, so the knob is real. OFF by default (0.0) -> live
+    behavior is UNCHANGED; set it and it fires past the bar, sharing the P3-partial latch."""
+    from memebot.execution.base import Fill
+    from memebot.portfolio.portfolio import ExitParams, Portfolio
+    pf = Portfolio(10.0)
+    pf.apply_buy(Fill("m", "buy", 100.0, 1.0, 0.01, 0.0, 0.0), symbol="X", mode="hold")   # 1.0 SOL @ 0.01
+    pos = pf.positions["m"]
+    assert pos.should_take_proactive_derisk(0.0125, ExitParams()) is False     # default 0.0 -> OFF (no behavior change)
+    ep = ExitParams(derisk_proactive_pct=0.20)
+    assert pos.should_take_proactive_derisk(0.011, ep) is False                # +10% < 20% -> no
+    assert pos.should_take_proactive_derisk(0.0125, ep) is True                # +25% >= 20% -> fire
+    pos.partial_taken = True
+    assert pos.should_take_proactive_derisk(0.0125, ep) is False               # shares the P3-partial latch (mutually exclusive w/ clean partial)
+
+
 # ── B1: RugCheck risk cross-check ─────────────────────────────────────────────
 def test_rugcheck_report_parse():
     """B1: a RugCheck 'danger'-level risk surfaces danger=True; warn/info or junk does not veto."""
