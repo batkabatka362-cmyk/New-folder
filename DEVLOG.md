@@ -841,3 +841,33 @@ is even FIXABLE by exits?
 - **The strategic through-line:** WL7 confirms exits are largely DONE (WL2 partial + breakeven trail +
   WL7 early take-initial handle the ~17% that pump). The remaining ~83% is SELECTION — which is exactly
   the user's IMAGE/branding edge (WL6) and the filter-funnel/timing ideas still ahead. Suite 249 → 250.
+
+---
+
+## WL8 — the filter-funnel audit (on-chain is EXHAUSTED) + the image-validation loop
+
+The user's selection thesis: a STACKED funnel (liquidity / volume / locked / + many stages) where
+passing ALL stages = a good coin; plus a TIME-frame when "traders come alive." Audited the funnel's
+safety stages honestly — and the answer reframes the whole project.
+
+- **Most rug-avoidance safety data is DARK at the buy.** Over the actual buys: top-5 concentration known
+  on 60%, mint/freeze authority on 76%, LP-burn ("locked") on just 25% (most buys are PRE-migration
+  curve tokens with no LP yet — N/A, not a bug). So 40% of buys carry no whale-concentration check, the
+  user's #1 rug tell. (Helius IS configured — it's the per-cycle read budget, not a missing RPC.)
+- **But requiring the safety data would NOT help — it INVERTS.** Split the buys by whether concentration
+  was known at entry: conc-KNOWN n=58 net −1.51/34% win vs conc-DARK n=35 net **+0.87/46%**. The
+  fully-vetted buys LOSE MORE — concentration-known correlates with later/established (worse) entries,
+  not with safety. So "don't buy without the safety data" (the strict-funnel intuition) would keep the
+  losing cohort and drop the winning one. Refused it.
+- **The honest meta-finding:** EVERY on-chain free-data signal we have now measured — concentration,
+  authorities, branding-reuse, entry-latency, entry-timing/age, the scorer — separates winners from rugs
+  at AUC ≈ 0.5 on our TRADED set, confirmed from ~6 independent angles. The on-chain free-data well is
+  exhausted (RESEARCH.md's structural wall, now thoroughly evidenced). More on-chain filter stages won't
+  separate; the doctrine's loss-minimisation ceiling holds.
+- **So the ONE untested modality is the IMAGE** (WL6) — a different signal class (human visual judgment,
+  not on-chain numbers). Built `backtest/image_separation.py`: the read-side that, once the scorer is
+  enabled (`ollama pull llava`, `IMAGE_SCAM_ENABLED=true`) and buys accrue an `image_scam_score`, reports
+  AUC(loser>winner) + a veto-threshold sweep — the loop that will DECIDE whether the user's eye encodes a
+  real edge before any veto is wired. Degrades to "no data yet" until enabled. Suite 250 → 251.
+- **Security note:** a Helius API key was briefly echoed to the session by a diagnostic (it lives in the
+  gitignored `.env`, never committed) — recommended the user rotate it. Do not print secret env values.

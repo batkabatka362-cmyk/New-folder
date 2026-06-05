@@ -892,6 +892,29 @@ def test_loss_decomp_buckets():
     assert by["never +10%"]["n"] == 1 and by["+30-50%"]["n"] == 1 and by[">+100%"]["n"] == 1
 
 
+def test_image_separation_analyze():
+    """WL6 read-side: image_scam_score -> realized-outcome separation AUC + veto-threshold sweep.
+    Validates the loop that decides whether the user's IMAGE edge actually separates (before any veto)."""
+    from memebot.backtest.image_separation import score_and_outcome, analyze
+    rows = [
+        ("L1", -0.5, -0.5, '{"image_scam_score": 0.9}'),   # loser, scam-looking
+        ("L2", -0.3, -0.3, '{"image_scam_score": 0.8}'),   # loser, scam-looking
+        ("W1", 0.4, 0.4, '{"image_scam_score": 0.2}'),     # winner, clean
+        ("W2", 0.2, 0.2, '{"image_scam_score": 0.5}'),     # winner, mid
+        ("U1", -0.1, -0.1, '{}'),                          # no score -> excluded
+        ("G1", 99.0, 50.0, '{"image_scam_score": 0.9}'),   # >20x glitch -> excluded
+    ]
+    pairs = score_and_outcome(rows)
+    assert set(pairs) == {"L1", "L2", "W1", "W2"}          # U1 (no score) + G1 (glitch) excluded
+    assert pairs["L1"] == (0.9, False) and pairs["W1"] == (0.2, True)
+    a = analyze(pairs, thresholds=(0.7,))
+    assert a["n"] == 4 and a["n_win"] == 2 and a["n_lose"] == 2
+    assert abs(a["loser_med"] - 0.85) < 1e-9 and abs(a["winner_med"] - 0.35) < 1e-9  # losers score higher
+    assert a["auc"] == 1.0                                        # both losers > both winners = perfect separation
+    s7 = a["sweep"][0]
+    assert s7["losers_cut"] == 2 and s7["winners_cut"] == 0 and s7["precision"] == 1.0
+
+
 # ── holder funding-cluster (free-data concealed-concentration) ─────────────────
 def test_holder_funder_cluster_and_owner_resolution():
     """Holder funding-cluster: the pure cluster fn + get_holder_owners (vault/burn excluded, deduped)."""

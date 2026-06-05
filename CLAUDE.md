@@ -18,7 +18,7 @@ python -m memebot.backtest.simulate  # offline backtest over logged candidates (
 python -m memebot.backtest.replay    # logged-candidate funnel stats
 ```
 
-The test suite is currently 250 green and must stay green. `run_tests.py` discovers every `test_*` function under `tests/` and needs no third-party deps; keep it that way (see Conventions).
+The test suite is currently 251 green and must stay green. `run_tests.py` discovers every `test_*` function under `tests/` and needs no third-party deps; keep it that way (see Conventions).
 
 Honest realized PnL (read THIS for the go-live gate, never the in-memory/`trade_outcomes` number — one pricing-glitch fill can be ~100% of reported profit):
 
@@ -37,6 +37,7 @@ python -m memebot.backtest.gate_attribution                            # spec-S7
 python -m memebot.backtest.winner_loss                                 # WL1: which gate CHECK rejects WINNERS — re-derives the live reject's reason offline -> per-reason winners-lost vs rugs-dodged + a TOO-STRICT verdict (the calibration lever; found buy/sell_low was 48%-precision noise -> min_buy_sell_ratio 1.5->1.0). ADVISORY.
 python -m memebot.backtest.conc_trajectory                             # WL3: does a top-5 concentration RISE WHILE HELD (the #1 free rug tell) separate rugs from winners? reads the hold_concentration time-series, peak-rise-per-mint vs the realized book, sweeps conc_rise_cut_pct candidates. ADVISORY; "no data yet" until the running bot accrues hold-time readings (needs a real Helius RPC).
 python -m memebot.backtest.loss_decomp [--peak 0.30]                   # WL7: of our net-LOSSES, how much is EXIT-addressable (pumped >= +30% then faded -> bank principal earlier) vs a SELECTION problem (never pumped -> only NOT entering avoids it, the image/funnel work)? Sizes the exits-vs-selection split. Current: ~17% addressable / ~83% selection.
+python -m memebot.backtest.image_separation                            # WL6 read-side: does the vision IMAGE scam-score separate rugs from winners on the realized book? AUC(loser>winner) + a veto-threshold sweep. "no data yet" until the scorer is enabled (`ollama pull llava`, IMAGE_SCAM_ENABLED=true) + buys accrue a score. The validation loop for the user's visual edge — the ONE untested modality (every on-chain free-data signal separates at AUC~0.5).
 ```
 
 GBM activation (only when there is labeled data — needs `lightgbm numpy pyarrow`):
