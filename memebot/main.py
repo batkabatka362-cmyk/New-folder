@@ -670,10 +670,20 @@ class Bot:
         if not fill.ok:
             log.debug("buy rejected %s: %s", c.symbol, fill.reason)
             return
+        # WL5 (DEFER-AND-LOG): record discovery->buy latency on the entry features (dataset-only key,
+        # NOT in FEATURE_NAMES, like bsr_h1). An adversarial study REJECTED a max-latency GATE as overfit
+        # noise on n=88 (permutation p=0.66; the apparent edge was 3 lucky fills; the single biggest
+        # winner sat in the slow tail a gate would delete). But logging the float is ~free and lets the
+        # latency->outcome relation be re-checked forward at larger n — the same play WL3 ran for
+        # concentration. Logging only: it never gates a buy or touches RiskManager.
+        entry_feats = build_features(c)
+        _st = self.registry.get(c.mint)
+        if _st is not None:
+            entry_feats["entry_latency_s"] = round(_st.age_s(), 1)   # first-seen -> buy (operational entry latency)
         if not self.portfolio.apply_buy(
             fill, symbol=c.symbol, mode=mode,
             tp_override=(verdict.tp_pct or None), sl_override=(verdict.sl_pct or None),
-            note=verdict.reasoning, features=build_features(c), score=c.score,  # P2: trade_outcomes
+            note=verdict.reasoning, features=entry_feats, score=c.score,  # P2: trade_outcomes
             creator=c.creator,                            # N9: cohort key for the correlated-flush cap
             setup_type=c.features.get("setup_type", ""),  # situation class -> setup-specific lessons
             risk_flags=verdict.risk_flags,                # P10 #4: carry the brain's at-entry concerns -> reflection

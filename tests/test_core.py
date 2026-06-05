@@ -1644,6 +1644,37 @@ def test_decide_and_open_real_try_open_veto_keeps_slot_and_counts_bought():
     bot.storage.close()
 
 
+def test_entry_latency_logged_on_open():
+    # WL5 (DEFER-AND-LOG): a real open records discovery->buy latency on entry_features as a dataset-ONLY
+    # key (NOT in FEATURE_NAMES, like bsr_h1). No gate uses it — an adversarial study rejected a
+    # max-latency gate as overfit noise — but the float is captured for forward calibration.
+    import asyncio
+    import time as _t
+    from memebot.agent.schema import Verdict
+    from memebot.config import RiskLimits
+    from memebot.filter.features import FEATURE_NAMES
+    from memebot.main import Bot
+    bot = Bot(Settings(db_path=":memory:", llm_backend="off", require_data_backed_setup=True,
+                       risk=RiskLimits(max_positions=2)))
+    bot.storage.connect()
+    bot.executor = _FakeBuyExec()
+
+    class BuyBrain:
+        async def decide(self, c, self_state=None):
+            return Verdict(action="buy", mode=c.mode, conviction=0.9, size_pct=0.5, reasoning="x")
+    bot.brain = BuyBrain()
+    c = Candidate(mint="H1", symbol="H1"); c.score = 0.9; c.mode = MODE_HOLD
+    c.liquidity_usd = 12000.0; c.price_usd = 1e-4; c.price_sol = 1e-3
+    st = bot.registry.get_or_create("H1"); st.created_ts = _t.time() - 60.0   # 60s since first-seen
+    asyncio.run(bot._decide_and_open([c], {}))
+    pos = bot.portfolio.positions.get("H1")
+    assert pos is not None
+    lat = pos.entry_features.get("entry_latency_s")
+    assert lat is not None and 58.0 <= lat <= 65.0              # ~60s discovery->buy captured
+    assert "entry_latency_s" not in FEATURE_NAMES               # dataset-only: training/scoring ignore it
+    bot.storage.close()
+
+
 def test_miss_learn_cross_pass_one_row_per_mint():
     # the same mint observed in two passes must record ONE missed_winner (token-level), but BOTH
     # observations get judged (no re-fetch). Exercises the `seen` pre-seed across passes.

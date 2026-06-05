@@ -742,3 +742,38 @@ sweep surfaced a real code gap worth fixing.
   to make the studied knob REAL (env-overridable, no longer misleading dead config) but leave enabling
   it to forward confirmation, never by feel. Honest outcome: a code-quality fix + a measurement that
   PREVENTED an overfit default change. Suite 244 → 245 (`test_proactive_derisk_gate_off_by_default_and_fires_when_enabled`).
+
+---
+
+## WL5 — entry-timing / fill-divergence: the leak is STRUCTURAL (an honest entry-side audit)
+
+The WL2 critic's #3: "the leak is entries, not exits — look at discovery→buy latency + fill-divergence
+before more exit micro-tuning." Done. The audit is the deliverable; it confirms the loss-min ceiling.
+
+- **Latency adverse-selection (paper-vs-live) is MODEST, not the leak.** `fill_divergence` over 295
+  matched fills: implied extra round-trip cost +0.81% at ~6s (eats 8% of the 9.5% cushion), and −0.20%
+  at ~15s — and the per-leg MEDIANs are ~0/favorable, so the mean drag is a few big moves, not
+  systematic. (Already fed into `readiness`.) A weak lower bound, but on the paper data latency is not
+  the dominant cost.
+- **No entry feature separates (re-confirmed).** `separation` winner-vs-rug AUC 0.44–0.56 across every
+  feature (price_change_m5/h1 and bsr_h1 top out at 0.56 = noise). Entry-velocity features are DARK at
+  entry anyway (they need a rolling history the first snapshot lacks). Entry AGE doesn't separate
+  (age_min AUC 0.55; winners + rugs both entered young, median <1 min).
+- **A discovery→buy-latency "edge" looked huge — and was adversarially PROVEN to be noise.** Scout
+  found buys filled faster (≤~62s) were net +0.47 SOL / 43% win vs slower >62s at −0.96 / 36%, a ~+1.5
+  SOL apparent gate. A focused adversarial workflow (7 agents: permutation tests, outlier-jackknife,
+  confound check, implementation scout) REJECTED it: permutation p=0.66 on the win-rate gap (r²=0.024),
+  the entire FAST-half net is **3 lucky fills** (FAST-minus-top-3 = −0.94 SOL), the threshold response
+  is non-monotonic (p-hacking signature), and the single biggest book winner (+0.77 SOL) sits at 132s
+  — squarely in the slow tail any "fast-is-better" gate would DELETE. No defensible threshold exists
+  (T=180s bootstrap 95% CI [−2.49, +3.04]). This is the textbook overfit-on-tiny-n the doctrine warns
+  about; inventing the gate was correctly refused.
+- **DEFER-AND-LOG (the one code change).** Capturing the latency float is ~free and may calibrate
+  forward at larger n (the WL3 play). `_try_open` now records `entry_latency_s = TokenState.age_s()`
+  (first-seen→buy) onto the entry features as a DATASET-ONLY key (not in `FEATURE_NAMES`, like
+  `bsr_h1`), riding the existing `trade_outcomes.entry_features` path. Logging only — it never gates a
+  buy or touches `RiskManager`.
+- **Bottom line:** the entry-side leak is STRUCTURAL — free data cannot separate winners from rugs at
+  entry, and the latency cost is real but modest and not closeable without speed/MEV infra we lack.
+  This is the loss-minimisation ceiling the literature predicts, now audited from the entry side too —
+  not a bug to tune away. Suite 245 → 246 (`test_entry_latency_logged_on_open`).
