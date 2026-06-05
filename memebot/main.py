@@ -802,14 +802,19 @@ class Bot:
         hesgiig tsaash ywuulj aldagdalgvi" doctrine. No-op if not yet up >= derisk_tp_pct (let the
         normal partial/SL own it) or already partialled. Selling into profit never creates a loss."""
         pos = self.portfolio.positions.get(mint)
-        if pos is None or pos.partial_taken or price is None or price <= 0:
+        # P7 fix: gate on the OWN derisk latch, not partial_taken. The old `pos.partial_taken` check
+        # meant a clean P3 partial permanently blocked this risk-triggered principal-recovery — so a
+        # position that banked a partial and THEN saw sell-pressure / a concentration rise could never
+        # recover its principal (the exact survival case this exists for). Own latch -> composes with
+        # the partial/initial latches (mirrors take_initial's latch="initial").
+        if pos is None or pos.derisk_taken or price is None or price <= 0:
             return
         if pos.pnl_pct(price) < self.exit_params.derisk_tp_pct:
             return
         frac = pos.derisk_fraction(price, sell_cost_pct(self.s.fees), self.exit_params.derisk_max_frac)
         if frac <= 0:
             return
-        await self._take_partial(mint, frac=frac, tag=tag, arm=False)
+        await self._take_partial(mint, frac=frac, tag=tag, arm=False, latch="derisk")
 
     async def _manage_loop(self) -> None:
         assert self.executor is not None

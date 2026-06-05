@@ -293,10 +293,10 @@ def test_exitlab_replay_and_evaluate():
     from memebot.backtest.exitlab import default_variants, evaluate, replay_exit
     from memebot.portfolio.portfolio import ExitParams
     ep = ExitParams()
-    # N2: a partial (partial_tp_pct=0.15, frac=0.5) banks 0.5 at +20% then the rest TPs at +50% ->
-    # qty-weighted multiple = 0.5*1.2 + 0.5*1.5 = 1.35 (NOT the single-leg 1.5).
+    # N2: a partial (partial_tp_pct=0.15, WL2 frac=0.7) banks 0.7 at +20% then the rest TPs at +50% ->
+    # qty-weighted multiple = 0.7*1.2 + 0.3*1.5 = 1.29 (NOT the single-leg 1.5).
     reason, mult, _ = replay_exit([(0.0, 1.0), (2.0, 1.2), (4.0, 1.5)], "scalp", ep)
-    assert reason == "tp" and abs(mult - 1.35) < 1e-9
+    assert reason == "tp" and abs(mult - 1.29) < 1e-9
     assert replay_exit([(0.0, 1.0), (2.0, 0.9), (4.0, 0.75)], "scalp", ep)[0] == "sl"          # -25% -> scalp SL
     assert replay_exit([(0.0, 1.0), (2.0, 1.01), (4.0, 1.0)], "scalp", ep)[0] == "end"         # flat -> never exits
     assert replay_exit([(0.0, 0.0), (2.0, 1.0)], "scalp", ep)[0] == "skip"                     # bad entry price
@@ -312,11 +312,11 @@ def test_exitlab_scale_out_legs():
     from dataclasses import replace
     from memebot.portfolio.portfolio import ExitParams
     ep = ExitParams()
-    # A partial banked at +20% CUSHIONS a subsequent crash: 0.5 sold at 1.2, the armed be-trail exits
-    # the rest off the 1.2 peak at 0.7 -> 0.5*1.2 + 0.5*0.7 = 0.95 (vs 0.70 with no partial).
+    # A partial banked at +20% CUSHIONS a subsequent crash: WL2 default partial_tp_frac=0.7 sold at 1.2,
+    # the armed be-trail exits the rest off the 1.2 peak at 0.7 -> 0.7*1.2 + 0.3*0.7 = 1.05 (vs 0.70 no partial).
     crash = [(0.0, 1.0), (2.0, 1.2), (4.0, 0.7)]
     reason, mult, _ = replay_exit(crash, "scalp", ep)
-    assert reason == "be_trail" and abs(mult - 0.95) < 1e-9
+    assert reason == "be_trail" and abs(mult - 1.05) < 1e-9
     # no_partial isolates it: a single leg, the armed be-trail exits at 0.7 -> 0.70 (the partial helps).
     no_partial = replace(ep, partial_tp_frac=0.0)
     assert abs(replay_exit(crash, "scalp", no_partial)[1] - 0.70) < 1e-9

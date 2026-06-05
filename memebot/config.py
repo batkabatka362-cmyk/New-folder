@@ -677,7 +677,7 @@ class Settings:
                 trail_after_arm_pct=_float("TRAIL_AFTER_ARM_PCT", 0.04),
                 scalp_stall_s=_float("SCALP_STALL_S", 75.0),
                 partial_tp_pct=_float("PARTIAL_TP_PCT", 0.15),
-                partial_tp_frac=_float("PARTIAL_TP_FRAC", 0.5),
+                partial_tp_frac=_float("PARTIAL_TP_FRAC", 0.7),   # WL2: keep load() default in sync with the dataclass (exitlab-calibrated 0.5->0.7)
                 liq_collapse_frac=_float("LIQ_COLLAPSE_FRAC", 0.5),
                 derisk_tp_pct=_float("DERISK_TP_PCT", 0.08),
                 derisk_max_frac=_float("DERISK_MAX_FRAC", 0.9),

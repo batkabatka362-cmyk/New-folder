@@ -649,3 +649,42 @@ costs ~zero rug to recover if the rejecting check doesn't actually separate.
   which contradicts survival-first — 1.0 is the meaningful break (buy/sell parity), not arbitrary.
   `vol/mcap`/`buyers` left as-is (net-useful at 60-61%; loosening them sheds real rug-dodge). Suite
   240 → 241 (`test_winner_loss_attribution_too_strict`, deterministic single-reason re-derivation).
+
+---
+
+## WL2 — exit-policy calibration + a de-risk latch correctness fix (this session)
+
+A multi-agent workflow (5 levers × investigate→adversarial-verify→synthesize, 11 agents) swept the
+win-rate / code-quality space. Two findings survived adversarial scrutiny and were adopted; three were
+honestly rejected/deferred (recorded here because the NO is as load-bearing as the YES).
+
+- **De-risk latch composition bug (correctness, the higher-priority fix).** `_derisk_if_profitable`
+  gated on `pos.partial_taken` and called `_take_partial` with the DEFAULT `latch="partial"` — so a
+  clean P3 partial permanently latched OUT the risk-triggered principal-recovery de-risk. A position
+  that banked a partial and THEN saw sell-pressure (tape) or a concentration rise could never recover
+  its principal — the exact survival case de-risk exists for. Fix: gave de-risk its OWN latch
+  (`Position.derisk_taken`), mirroring take_initial's `latch="initial"`, so partial / initial / derisk
+  all compose independently. Verified safe: `derisk_fraction` reads the REMAINING `cost_sol` (which
+  `apply_sell` reduces proportionally), so firing after a partial recovers only the remaining principal,
+  never over-sells; `arm=False` leaves the partial's `breakeven_armed` intact. Offline exitlab is
+  unaffected (it replays the PRICE-only proactive derisk, which legitimately shares the partial latch;
+  the LIVE risk-flag derisk is a separate path). New regression `test_partial_then_derisk_composes`.
+- **Exit tuning: `partial_tp_frac` 0.5 → 0.7 (WL2, exitlab over 234→236 paths).** Banking more of the
+  win on the partial lifts win-rate 52% → 56% (+9 winners, 0 lost) and median forward return +0.010 →
+  +0.042 — both OUTLIER-ROBUST (the gain is spread across 92/234 paths, not 3 outliers). Net -13.23 →
+  -12.90. Independently re-verified by a second agent. Deliberately did NOT move `trail_after_arm_pct`
+  (0.04): its ~1 SOL net "gain" was 208% concentrated in 3 paths with zero median lift and a negative
+  interaction with the partial — overfit, rejected. dataclass + load() defaults kept in sync; exitlab
+  scale-out math tests updated for the new 0.7 weighting.
+- **Rejected (honest, survival-first):** (1) a vol/mcap_low **second-chance lane** — re-admits ~1.67
+  rugs per winner recovered (62.5% precision ≈ the gate's own 61%, within noise), and its proposed
+  secondary discriminator (`top5_concentration_pct`) is UNKNOWN on all ~24 relevant tokens, so it
+  cannot separate; (2) **raising `entry_threshold`** for selectivity — the entry score has ~ZERO
+  correlation with realized outcome (Pearson −0.027; deciles non-monotonic; high-score WR 44.8% vs
+  low 46.3%), so the +0.56 SOL counterfactual is pure survivorship on 134 trades. Both confirm the
+  honest doctrine: no static feature separates, selectivity is a false lever on free data.
+- **Deferred (needs data): `conc_rise_cut_pct` 8 → 5.** Mechanism is sound + survival-first, but the
+  effectiveness is UNMEASURED — only 1 `conc_rise` exit observed and no hold-time concentration
+  time-series is logged. The completeness critic's #1 next move falls straight out of this: instrument
+  `_reeval_loop` to PERSIST per-position top-5 concentration at entry + each re-check, converting the
+  #1 free rug tell (a concentration RISE while held) from reasoned-about to measurable. Suite 241 → 242.

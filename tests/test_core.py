@@ -1069,7 +1069,8 @@ def test_derisk_if_profitable_banks_principal():
     start_bal = bot.portfolio.sol_balance                        # 10 - 0.5 = 9.5
     asyncio.run(bot._derisk_if_profitable("M", 1e-3, "derisk_flow"))   # +100% -> de-risk
     pos = bot.portfolio.positions.get("M")
-    assert pos is not None and pos.partial_taken is True          # tail still rides, marked one-time
+    assert pos is not None and pos.derisk_taken is True           # P7 fix: tail rides, marked one-time via derisk's OWN latch
+    assert pos.partial_taken is False                             # ...and the clean-partial latch is left FREE to compose
     assert pos.breakeven_armed is False                           # free-roll (NOT the tight arm-trail)
     assert abs(bot.portfolio.sol_balance - bot.portfolio.initial_sol) < 1e-6   # principal fully recovered to cash
     assert pos.qty > 0                                            # a house-money tail remains
@@ -1089,7 +1090,29 @@ def test_derisk_if_profitable_noop_when_flat():
     bot.portfolio.apply_buy(Fill("M", "buy", 1000.0, 0.5, 5e-4, 0.01, 0.03),
                             symbol="M", mode="hold", features={"liquidity_usd": 18000.0}, score=0.6)
     asyncio.run(bot._derisk_if_profitable("M", 5.1e-4, "derisk_flow"))   # +2% < derisk_tp_pct(8%) -> no-op
-    assert bot.portfolio.positions["M"].partial_taken is False
+    assert bot.portfolio.positions["M"].derisk_taken is False
+    bot.storage.close()
+
+
+def test_partial_then_derisk_composes():
+    # P7 fix (regression): a clean P3 partial must NOT block a later risk-triggered de-risk. Before the
+    # fix, derisk shared the partial_taken latch, so banking a partial permanently disabled principal
+    # recovery — the exact survival case de-risk exists for. With its own latch they COMPOSE.
+    import asyncio
+    from memebot.main import Bot
+    bot = Bot(Settings(db_path=":memory:", llm_backend="off"))
+    bot.storage.connect()
+    bot.executor = _FakeSellExec(price=1e-3)
+    bot.portfolio.apply_buy(Fill("M", "buy", 1000.0, 0.5, 5e-4, 0.01, 0.03),
+                            symbol="M", mode="hold", features={"liquidity_usd": 18000.0}, score=0.6)
+    asyncio.run(bot._take_partial("M"))                            # clean P3 partial fires first (latch="partial")
+    pos = bot.portfolio.positions.get("M")
+    assert pos is not None and pos.partial_taken is True and pos.derisk_taken is False
+    qty_after_partial = pos.qty
+    asyncio.run(bot._derisk_if_profitable("M", 1e-3, "derisk_conc"))   # THEN a risk flag fires -> de-risk still runs
+    pos = bot.portfolio.positions.get("M")
+    assert pos is not None and pos.derisk_taken is True           # the fix: de-risk composed past the partial
+    assert pos.qty < qty_after_partial                            # it sold more (recovered remaining principal)
     bot.storage.close()
 
 
@@ -1106,7 +1129,7 @@ def test_n3_scaled_out_winner_not_flagged_as_loss():
     bot.portfolio.apply_buy(Fill("M", "buy", 1000.0, 0.5, 5e-4, 0.01, 0.03),
                             symbol="M", mode="hold", features={"liquidity_usd": 18000.0}, score=0.6)
     asyncio.run(bot._derisk_if_profitable("M", 1e-3, "derisk"))   # principal recovered, free-roll tail rides
-    assert bot.portfolio.positions["M"].partial_taken
+    assert bot.portfolio.positions["M"].derisk_taken
     bot.executor.price = 1e-4                                      # the tail then dumps -80%
     asyncio.run(bot._close_position("M", "sl"))
     ct = bot.portfolio.closed[-1]
@@ -1135,7 +1158,7 @@ def test_observe_held_derisks_on_sell_pressure():
                         price_change_h1=-10.0, market_cap=50000.0, fdv=0.0, pair_created_at=0)
     asyncio.run(bot._observe_held([st], {"WIN": snap}))
     pos = bot.portfolio.positions.get("WIN")
-    assert pos is not None and pos.partial_taken is True and pos.breakeven_armed is False  # de-risked, free-rolling
+    assert pos is not None and pos.derisk_taken is True and pos.breakeven_armed is False  # de-risked, free-rolling
     row = bot.storage._conn.execute("SELECT features FROM observations WHERE mint='WIN'").fetchone()
     feats = json.loads(row[0])                                    # the tape signal is logged for P4 to LEARN
     assert feats["sell_pressure"] == 1.0 and abs(feats["bsr_h1"] - 0.2) < 1e-9

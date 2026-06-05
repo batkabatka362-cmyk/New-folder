@@ -31,7 +31,7 @@ class ExitParams:
     trail_after_arm_pct: float = 0.04   # P8: once armed, exit this far off the peak. Tightened 0.06->0.04 from the exitlab sweep over 113 logged price paths: net -0.585 vs baseline -0.06's -2.501 (~4x less bad, win 42% vs 40%) — be_trail dominates exits, so a tighter ratchet banks more of the peak before the fade. Still net-NEGATIVE (the leak is entries/data, not exits); re-sweep as data grows.
     scalp_stall_s: float = 75.0         # P3: a scalp still <=break-even after this is a bleeder -> exit "stall"
     partial_tp_pct: float = 0.15        # P3: take a partial profit here (ABOVE the ~9.5% round-trip cost) to lock SOL
-    partial_tp_frac: float = 0.5        # ...selling this fraction, then free-roll the rest at break-even
+    partial_tp_frac: float = 0.7        # WL2 (exitlab, 234 paths): 0.5->0.7 — banks more of the win on the partial, lifting win 52%->56% (+9 winners, 0 lost) + median fwd +0.010->+0.042, broad across 92/234 paths (NOT outlier-driven). Robust tuning, re-sweep as data grows. (trail_after_arm_pct stays 0.04 — its net edge was 3-path overfit.)
     liq_collapse_frac: float = 0.5      # W2: force-close a HOLD when its pool drains below this fraction of ENTRY liquidity (a rug the -35% price SL gaps past — exit on the pool drain, the real rug tell)
     # P7 (user doctrine: "ersdeltei baiwal orson dvngeer ashig hiigeed vldsen hesgiig tsaash ywuulj
     # aldagdalgvi vldene" — when RISKY, recover the PRINCIPAL as profit and free-roll the rest with
@@ -74,6 +74,7 @@ class Position:
     breakeven_armed: bool = False       # latched once the position has been comfortably in profit
     partial_taken: bool = False         # P3: a partial take-profit has already been booked
     initial_taken: bool = False         # A3: the "recover principal at 2x" take-initial has fired (own latch)
+    derisk_taken: bool = False          # P7 fix: the RISK-flag principal-recovery de-risk has fired (own latch, composes with partial/initial — a clean partial must NOT block a later risk-triggered de-risk)
     entry_features: dict = field(default_factory=dict)  # P2: feature vector at entry -> trade_outcomes
     entry_score: float = 0.0            # P2: the scorer's value at entry
     creator: str = ""                   # N9: creator wallet -> correlated-cohort exposure cap
