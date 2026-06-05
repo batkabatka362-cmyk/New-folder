@@ -801,6 +801,38 @@ def test_gate_attribution_confusion_matrix():
     assert a["reason_falsereject"] == {"buyers_low": 1}           # the check that lost a winner
 
 
+def test_winner_loss_attribution_too_strict():
+    """WL1 (winner_loss): per gate-reason winners-lost vs rugs-dodged, re-derived through the REAL gate
+    (candidate_from_features -> rules.evaluate). A reason rejecting more WINNERS than RUGS is the
+    over-strict calibration lever. Verifies the three branches: only-REJECTED mints counted, only the
+    re-derivable reason attributed, and the kept/unexplained rejects ignored."""
+    from memebot.config import Settings
+    from memebot.backtest.winner_loss import attribute
+    s = Settings()
+    # feats that trip EXACTLY one gate reason (buyers_low) — every OTHER gate satisfied, so the
+    # re-derivation is deterministic regardless of the buy/sell calibration value.
+    def feats(buyers):
+        return {"liquidity_usd": 10_000.0, "market_cap_usd": 50_000.0, "vol_to_mcap_pct": 50.0,
+                "buy_sell_ratio": 2.0, "unique_buyers": buyers, "vol_h1": 5_000.0,
+                "mint_revoked": 1.0, "freeze_revoked": 1.0, "lp_burned_pct": 100.0}
+    recs = [{"mint": "w1", "outcome": "winner"}, {"mint": "w2", "outcome": "winner"},
+            {"mint": "r1", "outcome": "rug"},    {"mint": "p1", "outcome": "winner"},
+            {"mint": "k1", "outcome": "winner"}, {"mint": "f1", "outcome": "flat"}]
+    gate = {
+        "w1": {"passed": False, "feats": feats(5),  "price": 0.001},   # rejected winner -> buyers_low
+        "w2": {"passed": False, "feats": feats(5),  "price": 0.001},   # rejected winner -> buyers_low
+        "r1": {"passed": False, "feats": feats(5),  "price": 0.001},   # rejected rug    -> buyers_low (correct dodge)
+        "p1": {"passed": True,  "feats": feats(5),  "price": 0.001},   # gate KEPT it -> not a reject, ignored
+        "k1": {"passed": False, "feats": feats(30), "price": 0.001},   # rejected live but re-derives NO reason -> dropped
+        "f1": {"passed": False, "feats": feats(5),  "price": 0.001},   # flat -> neither harmful nor keep, ignored
+    }
+    a = attribute(recs, gate, s)
+    assert a["n_win_lost"] == 2 and a["n_rug_dodged"] == 1          # w1,w2 lost; r1 dodged; p1/k1/f1 excluded
+    row = {r["reason"]: r for r in a["table"]}["buyers_low"]
+    assert row["winners_lost"] == 2 and row["rugs_dodged"] == 1
+    assert abs(row["precision"] - 1.0 / 3.0) < 1e-9                 # rugs / (rugs + winners) it rejected
+
+
 # ── holder funding-cluster (free-data concealed-concentration) ─────────────────
 def test_holder_funder_cluster_and_owner_resolution():
     """Holder funding-cluster: the pure cluster fn + get_holder_owners (vault/burn excluded, deduped)."""

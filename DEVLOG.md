@@ -620,3 +620,32 @@ outcomes — the spec's §7 loop. Deploy -> accumulate -> measure; do NOT claim 
   survivor; enable when the RPC has headroom. Advisory (vault/CEX false-positive risk keeps it off the
   hard veto). This is the free-data path to the coordinated-wallet signal G3 would otherwise be needed
   for. (Post-commit; uncommitted.)
+
+---
+
+## WL1 — winner-loss attribution + buy/sell-gate calibration (this session)
+
+The gate dodges ~51% of rugs but FALSE-rejects ~41% of winners (`gate_attribution`). That false-reject
+is the #1 lever on the loss-min net — every winner the gate wrongly throws away is forgone upside that
+costs ~zero rug to recover if the rejecting check doesn't actually separate.
+
+- **`backtest/winner_loss.py` (new, offline/read-only/advisory).** For each mint the live gate ACTUALLY
+  rejected (`observations.rule_passed` never True), reconstruct its candidate from logged features
+  (`candidate_from_features`), re-run the REAL `rules.evaluate`, and read which named reason fired —
+  then tally, per reason, the WINNERS wrongly rejected vs the RUGS correctly dodged, with a precision
+  column (rugs/(rugs+winners)) and a TOO-STRICT verdict when winners_lost > rugs_dodged. Only the
+  REASON is re-derived (the kept/lost split uses the gate's real live decision); scam_likelihood is
+  slightly under-counted on old logs (can only miss a reason, never invent one).
+- **Empirical finding.** Of 26 rejected winners / 38 rejected rugs: `buy/sell_low` (min_buy_sell_ratio)
+  topped the table at **17 winners lost / 16 rugs dodged = 48% precision** — i.e. a HARD gate operating
+  at coin-flip, exactly as expected since buy/sell ratio is the documented non-predictive feature
+  (AUC~0.5; the scorer already downweights it). `vol/mcap_low` (16/25, 61%) and `buyers_low` (8/12,
+  60%) are mixed-but-net-useful; `liquidity<3000` (2/5, 71%) earns its keep.
+- **Calibration applied (advisory, human-reviewed — NOT auto-tuned).** `min_buy_sell_ratio` 1.5 → 1.0:
+  the gate now vetoes only NET-SELLING flow (buys < sells), keeping the [1.0, 1.5) winners. Re-running
+  the tool confirms buy/sell_low's winner-loss drops 17 → 9 and ~8 rejected winners (26 → 22 total) now
+  re-derive to NO blocking reason — i.e. the new threshold would have kept them. STOPPED at 1.0 on
+  principle: the tool still flags 9-vs-5, but loosening past parity means buying into net sell pressure,
+  which contradicts survival-first — 1.0 is the meaningful break (buy/sell parity), not arbitrary.
+  `vol/mcap`/`buyers` left as-is (net-useful at 60-61%; loosening them sheds real rug-dodge). Suite
+  240 → 241 (`test_winner_loss_attribution_too_strict`, deterministic single-reason re-derivation).

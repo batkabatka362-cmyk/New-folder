@@ -111,7 +111,7 @@ class MomentumThresholds:
 
     volume_spike_mult: float = 2.5          # current vol > N x trailing avg
     min_vol_to_mcap_pct: float = 10.0       # < this == dead
-    min_buy_sell_ratio: float = 1.5
+    min_buy_sell_ratio: float = 1.0        # WL1 (winner_loss): was 1.5 — that hard gate lost 17 winners / dodged 16 rugs (48% precision = noise; buy/sell is non-predictive, AUC~0.5). 1.0 vetoes only net-SELLING (buys<sells) flow, keeps the [1.0,1.5) winners. Advisory-calibrated, not auto-tuned.
     min_liq_to_mcap_pct: float = 10.0
     min_vol_h1: float = 1500.0              # R2-a: 1h USD volume — the #1 winner signal (study + AI5); _norm full_at = 2x this
     min_unique_buyers: int = 15             # breadth defeats wash bots
@@ -628,7 +628,7 @@ class Settings:
             momentum=MomentumThresholds(
                 volume_spike_mult=_float("VOLUME_SPIKE_MULT", 2.5),
                 min_vol_to_mcap_pct=_float("MIN_VOL_TO_MCAP_PCT", 10.0),
-                min_buy_sell_ratio=_float("MIN_BUY_SELL_RATIO", 1.5),
+                min_buy_sell_ratio=_float("MIN_BUY_SELL_RATIO", 1.0),   # WL1: keep load() default in sync with the dataclass (winner_loss-calibrated 1.5->1.0)
                 min_liq_to_mcap_pct=_float("MIN_LIQ_TO_MCAP_PCT", 10.0),
                 min_vol_h1=_float("MIN_VOL_H1", 1500.0),
                 min_unique_buyers=_int("MIN_UNIQUE_BUYERS", 15),
