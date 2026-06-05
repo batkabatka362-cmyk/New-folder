@@ -940,6 +940,41 @@ def test_holder_funder_cluster_and_owner_resolution():
     assert owners.count("ownerA") == 1                             # owners deduped
 
 
+def test_helius_recent_buyers_parse_and_fetch():
+    """WL9 (free-data smart-money foundation): pure pre/post token-balance diff -> BUYERS, + the
+    get_recent_buyers fetch over a fake RPC. Standard RPC only -> spends NO SOL (vs the metered tape)."""
+    import asyncio
+    from memebot.feed.helius_rpc import HeliusRPC
+    M = "MINT"
+    tx = {"meta": {
+        "preTokenBalances": [{"mint": M, "owner": "A", "uiTokenAmount": {"uiAmount": 0.0}},
+                             {"mint": M, "owner": "B", "uiTokenAmount": {"uiAmount": 50.0}},
+                             {"mint": "OTHER", "owner": "C", "uiTokenAmount": {"uiAmount": 0.0}}],
+        "postTokenBalances": [{"mint": M, "owner": "A", "uiTokenAmount": {"uiAmount": 100.0}},   # +100 = BUY
+                              {"mint": M, "owner": "B", "uiTokenAmount": {"uiAmount": 50.0}},     # flat -> not a buyer
+                              {"mint": "OTHER", "owner": "C", "uiTokenAmount": {"uiAmount": 999.0}}]}}  # other mint ignored
+    assert HeliusRPC._buyers_from_tx(tx, M) == [("A", 100.0)]
+    assert HeliusRPC._buyers_from_tx({}, M) == [] and HeliusRPC._buyers_from_tx({"meta": None}, M) == []
+
+    async def run():
+        h = HeliusRPC("https://x.helius-rpc.com/?api-key=k")
+        calls = {"sig": 0, "tx": 0}
+        async def fake_rpc(method, params):
+            if method == "getSignaturesForAddress":
+                calls["sig"] += 1
+                return [{"signature": "s1"}, {"signature": "s2"}]
+            calls["tx"] += 1
+            owner = "A" if params[0] == "s1" else "D"
+            amt = 100.0 if params[0] == "s1" else 20.0
+            return {"meta": {"preTokenBalances": [],
+                             "postTokenBalances": [{"mint": M, "owner": owner, "uiTokenAmount": {"uiAmount": amt}}]}}
+        h._rpc = fake_rpc
+        return await h.get_recent_buyers(M, max_sigs=5), calls
+    buyers, calls = asyncio.run(run())
+    assert [b[0] for b in buyers] == ["A", "D"]                    # distinct buyers, newest-first
+    assert calls["sig"] == 1 and calls["tx"] == 2                  # 1 sig fetch + 1 tx fetch / signature
+
+
 # ── brain audit (is the LLM brain used / does it earn its keep?) ───────────────
 def test_brain_audit_usage_and_ab():
     """deferred-5 #1: brain-usage rate (brain vs rule decisions) + per-source CLEAN-book A/B."""

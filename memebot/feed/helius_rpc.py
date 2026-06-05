@@ -232,6 +232,73 @@ class HeliusRPC:
         except (TypeError, KeyError):
             return []
 
+    @staticmethod
+    def _buyers_from_tx(tx: dict, mint: str) -> list[tuple[str, float]]:
+        """Pure: the owners who NET-RECEIVED `mint` tokens in one getTransaction(jsonParsed) result —
+        i.e. the BUYERS — with the token amount gained. Diffs pre/postTokenBalances by OWNER wallet (not
+        token account), so it survives ATA indirection. [] on any shape error. Split out for unit tests."""
+        try:
+            meta = tx["meta"]
+        except (TypeError, KeyError):
+            return []
+        if not isinstance(meta, dict):
+            return []
+
+        def by_owner(balances) -> dict[str, float]:
+            out: dict[str, float] = {}
+            for b in balances or []:
+                if not isinstance(b, dict) or b.get("mint") != mint:
+                    continue
+                owner = b.get("owner")
+                amt = (b.get("uiTokenAmount") or {}).get("uiAmount")
+                if owner and amt is not None:
+                    try:
+                        out[owner] = out.get(owner, 0.0) + float(amt)
+                    except (TypeError, ValueError):
+                        continue
+            return out
+
+        pre_o, post_o = by_owner(meta.get("preTokenBalances")), by_owner(meta.get("postTokenBalances"))
+        buyers = []
+        for owner, post_amt in post_o.items():
+            gained = post_amt - pre_o.get(owner, 0.0)
+            if gained > 1e-9:                       # net token INCREASE = a buy this tx
+                buyers.append((owner, gained))
+        return buyers
+
+    async def get_recent_buyers(self, mint: str, *, max_sigs: int = 20) -> list[tuple[str, float]]:
+        """Recent distinct BUYER wallets of `mint` (owners who net-received tokens), newest-first, from
+        on-chain history. The FREE-data path to the smart-money / early-buyer winner signal — PumpPortal's
+        trade tape is METERED (0.01 SOL / 10k events), so we reconstruct buyers from standard RPC instead,
+        SPENDING NO SOL. EXPENSIVE: ~1 + max_sigs RPC calls, so the caller MUST cost-gate it to a few top
+        candidates + cache (a token's early buyers are immutable). [] on any failure (never raises)."""
+        if not mint:
+            return []
+        try:
+            sigs = await self._rpc("getSignaturesForAddress", [mint, {"limit": max(1, int(max_sigs))}])
+        except Exception:  # noqa: BLE001
+            return []
+        if not sigs:
+            return []
+        buyers: list[tuple[str, float]] = []
+        seen: set[str] = set()
+        for s in sigs:
+            sig = s.get("signature") if isinstance(s, dict) else None
+            if not sig:
+                continue
+            try:
+                tx = await self._rpc("getTransaction",
+                                     [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}])
+            except Exception:  # noqa: BLE001
+                continue
+            if not tx:
+                continue
+            for owner, amt in self._buyers_from_tx(tx, mint):
+                if owner not in seen:
+                    seen.add(owner)
+                    buyers.append((owner, amt))
+        return buyers
+
     async def get_owner_balance(self, owner: str, mint: str) -> float | None:
         """Total uiAmount the `owner` WALLET holds of `mint` (sums its token accounts). None on
         failure; 0.0 = the owner holds none (e.g. the creator has SOLD OUT their allocation)."""

@@ -871,3 +871,29 @@ safety stages honestly — and the answer reframes the whole project.
   real edge before any veto is wired. Degrades to "no data yet" until enabled. Suite 250 → 251.
 - **Security note:** a Helius API key was briefly echoed to the session by a diagnostic (it lives in the
   gitignored `.env`, never committed) — recommended the user rotate it. Do not print secret env values.
+
+---
+
+## WL9 — the #1 winner-finding strategy (smart-money), free-data foundation (Phase 1)
+
+The user: "find how GOOD traders find winners, then make it real." Researched it (Nansen / GMGN / a
+2026 arXiv multi-agent study, cited): the consistently-cited winner signal is **SMART-MONEY CONFLUENCE**
+— when ≥N wallets with a proven PnL track-record buy the same fresh low-cap token, follow them; plus
+EARLY-BUYER / sniper quality (the first ~70 buyers "often predict the pump"). Not a silver bullet (the
+literature is explicit), but it is the one documented winner-edge we have NEVER had working.
+
+- **Why we never had it:** `smart_money_share` / `sniper_share` / `bundle_share` / `creator_dump_ratio`
+  log as KNOWN 0% (always the −1 sentinel), and the `wallets` PnL table is EMPTY. They all need
+  TRADE-LEVEL buyer data (WHO bought), which on PumpPortal means `subscribeTokenTrade` — CONFIRMED
+  metered at 0.01 SOL / 10k events on a funded API-key wallet (the G3 tape). That spends SOL, so the
+  HARD CONSTRAINT keeps it OFF — the smart-money layer was dark by construction.
+- **The FREE path (Phase 1, built):** reconstruct buyers from standard RPC instead of the paid tape.
+  `HeliusRPC.get_recent_buyers(mint)` pulls the mint's recent signatures and diffs each tx's pre/post
+  TOKEN balances by OWNER to extract the wallets that NET-RECEIVED tokens (= buyers) — SPENDING NO SOL,
+  on the Helius RPC we already have. Pure `_buyers_from_tx` split out + unit-tested. EXPENSIVE (~1 +
+  max_sigs RPC calls), so it is built to be cost-gated to a few top candidates + cached (a token's early
+  buyers are immutable).
+- **Next (Phase 2):** feed these buyers into the `SmartMoney` wallet-PnL store so wallet reputations
+  accrue across tokens, then surface a smart-money-confluence + early-buyer signal (cost-gated in eval,
+  LOG-first like every other signal — validate that it separates before it ever gates a buy). Honest
+  framing preserved: this is the best untested winner-signal, not a promised edge. Suite 251 → 252.
