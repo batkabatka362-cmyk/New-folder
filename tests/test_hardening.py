@@ -975,6 +975,28 @@ def test_helius_recent_buyers_parse_and_fetch():
     assert calls["sig"] == 1 and calls["tx"] == 2                  # 1 sig fetch + 1 tx fetch / signature
 
 
+def test_buyer_intel_smart_dumper_confluence():
+    """WL9 Phase 2: learn wallet reputation from OUR observed outcomes -> the smart-money CONFLUENCE
+    signal (smart vs dumper early-buyers) — the free-data form of how good traders find winners."""
+    from memebot.data.buyer_intel import BuyerIntel
+    bi = BuyerIntel(min_tokens=3, smart_winrate=0.55, dumper_rugrate=0.6)
+    for i in range(3):                                            # SW is an early buyer of 3 winners -> SMART
+        bi.record_buyers(f"win{i}", ["SW", "X"]); bi.on_outcome(f"win{i}", won=True)
+    for i in range(3):                                            # DW is an early buyer of 3 rugs -> DUMPER
+        bi.record_buyers(f"rug{i}", ["DW", "X"]); bi.on_outcome(f"rug{i}", won=False, rugged=True)
+    bi.record_buyers("flat0", ["NW"]); bi.on_outcome("flat0", won=False)   # 1 token -> below min_tokens
+    assert bi.is_smart("SW") and not bi.is_dumper("SW")
+    assert bi.is_dumper("DW") and not bi.is_smart("DW")
+    assert not bi.is_smart("NW") and not bi.is_dumper("NW")       # too few resolved tokens to label
+    assert not bi.is_smart("X") and not bi.is_dumper("X")         # 3W/3R over 6 -> 50% < both bars -> neither
+    assert bi.confluence(["SW", "DW", "Z", "SW"]) == {"smart_count": 1, "dumper_count": 1, "n_buyers": 3}
+    bi.on_outcome("win0", won=True)                              # already resolved -> no-op (pending consumed)
+    assert bi._wallet["SW"]["tokens"] == 3                        # not double-counted
+    bi2 = BuyerIntel(min_tokens=3); bi2.load(bi.snapshot())       # snapshot/load round-trips the reputations
+    assert bi2.is_smart("SW") and bi2.is_dumper("DW")
+    bi.record_buyers("m", ["A", "A", "", None]); assert bi._pending["m"] == ["A"]   # dedups + ignores empty
+
+
 # ── brain audit (is the LLM brain used / does it earn its keep?) ───────────────
 def test_brain_audit_usage_and_ab():
     """deferred-5 #1: brain-usage rate (brain vs rule decisions) + per-source CLEAN-book A/B."""

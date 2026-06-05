@@ -897,3 +897,18 @@ literature is explicit), but it is the one documented winner-edge we have NEVER 
   accrue across tokens, then surface a smart-money-confluence + early-buyer signal (cost-gated in eval,
   LOG-first like every other signal — validate that it separates before it ever gates a buy). Honest
   framing preserved: this is the best untested winner-signal, not a promised edge. Suite 251 → 252.
+
+- **Phase 2 (built): the reputation engine, on FREE labels.** The orthodox SmartMoney store needs each
+  wallet's external PnL (buys+sells+SOL across all tokens) — infeasible from per-token RPC parsing. So
+  `data/buyer_intel.py` `BuyerIntel` learns wallet reputation from OUR OWN labels instead: `record_buyers
+  (mint, wallets)` stashes a token's early buyers; `on_outcome(mint, won, rugged)` credits/debits them
+  when the token resolves; a wallet whose early-bought tokens tend to WIN is `is_smart`, tends to RUG is
+  `is_dumper`; `confluence(wallets)` returns the smart-vs-dumper counts for a fresh candidate — the
+  research's confluence signal in free-data form. Pure + bounded (eviction like CreatorHistory), snapshot/
+  load for cross-restart persistence, fully unit-tested. Suite 252 → 253.
+- **Honest operational limit (Phase 3 ahead):** the wiring will gate the EXPENSIVE buyer read
+  (`get_recent_buyers`, ~1+max_sigs RPC calls) behind a config flag (OFF by default, like the image
+  scorer), cost-gated to a few top candidates/cycle. The free-data catch: reputations accrue SLOWLY
+  (we can only afford buyer reads for a handful of tokens/cycle on the Helius tier), where the metered
+  tape would stream every trade — so the smart-money signal is real but SLOW to mature on free data. That
+  is the honest ceiling, surfaced to the user before wiring the hot-path reads.
