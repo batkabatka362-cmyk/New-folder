@@ -37,7 +37,7 @@ from .data.token_state import TokenRegistry
 from .execution.paper import PaperBackend
 from .execution.pricing import PriceSource
 from .feed.dexscreener import DexScreenerClient
-from .feed.helius_rpc import HeliusRPC
+from .feed.helius_rpc import HeliusRPC, largest_funder_cluster
 from .feed.jupiter import JupiterClient
 from .feed.rugcheck import RugCheckClient
 from .feed.pumpportal_ws import PumpPortalFeed
@@ -66,6 +66,7 @@ class Bot:
         self.registry = TokenRegistry()
         self.creator_history = CreatorHistory()   # serial-spam / rug-factory tell (launch count per creator)
         self.funder_history = FunderRegistry()    # N12: re-link rotated creators by common funder (cluster tell)
+        self._holder_funder_cache: dict[str, str | None] = {}   # holder-cluster: wallet -> funder (immutable; cache to bound cost)
         self.metadata_history = MetadataRegistry()  # branding-duplication (name/ticker reuse = scam-factory tell)
         self.smart_money = SmartMoney()            # P8: per-wallet cross-token PnL -> copy-trade signal (G3 tape)
         self.storage = Storage(settings.db_path)
@@ -450,6 +451,19 @@ class Bot:
                         chp = await self.helius.creator_holding_pct(st.mint, st.creator)
                         if chp is not None:
                             c.features["creator_holding_pct"] = chp
+                    # HOLDER funding-cluster (free-data concealed-concentration): top non-vault holders'
+                    # owners -> funders (cached, immutable) -> flag when several share ONE funder = one
+                    # entity behind many wallets. Cost-gated (OFF by default); bounded + cached.
+                    if self.s.safety.holder_cluster_check:
+                        funders = []
+                        for o in await self.helius.get_holder_owners(st.mint, top_n=self.s.safety.holder_cluster_top_n):
+                            if o not in self._holder_funder_cache:
+                                self._holder_funder_cache[o] = await self.helius.get_funder(o)
+                            if self._holder_funder_cache[o]:
+                                funders.append(self._holder_funder_cache[o])
+                        cluster = largest_funder_cluster(funders)
+                        if cluster >= 2:
+                            c.features["holder_funder_cluster"] = cluster
                 rules.evaluate(c, self.s)                 # re-gate with safety data
                 if not c.rule_passed:
                     if c.liquidity_usd > 0:               # P2: safety-failer observation (resolved safety)

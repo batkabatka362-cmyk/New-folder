@@ -80,6 +80,14 @@ class SafetyGates:
     # > serial_max = not a single operator) — no hand-maintained address denylist needed. SOFT/advisory.
     funder_serial_min: int = 3                  # >= this many distinct creators share the funder -> a real cluster (below = noise)
     funder_serial_max: int = 200               # ...but ABOVE this it's INFRASTRUCTURE funding everyone -> exclude (no penalty)
+    # HOLDER funding-cluster (free-data concealed-concentration tell, RESEARCH.md's #1 missing signal via
+    # FUNDING rather than the G3 same-block tape): resolve the top non-vault holders' owner wallets, trace
+    # each owner's funder, and flag when several "independent" top holders share ONE funder = one entity
+    # hiding behind many wallets. OFF by default — it costs several extra Helius reads per survivor
+    # (getAccountInfo per holder + a funder trace each); enable when the RPC has headroom. ADVISORY only.
+    holder_cluster_check: bool = False          # master toggle (cost-gated)
+    holder_cluster_top_n: int = 4               # how many top non-vault holders to cluster
+    holder_cluster_warn: int = 2                # >= this many top holders sharing one funder -> graded scam penalty
     # DUPLICATION (user insight): a name+ticker REUSED across many mints is a scam-factory hallmark (a
     # fresh creator/funder but the SAME branding still ties the spam together). SOFT/advisory + noisy
     # (popular memes are reused legitimately), so a small graded penalty, never a veto; calibrate from data.
@@ -601,6 +609,9 @@ class Settings:
                 creator_spam_launches=_int("CREATOR_SPAM_LAUNCHES", 40),
                 funder_serial_min=_int("FUNDER_SERIAL_MIN", 3),
                 funder_serial_max=_int("FUNDER_SERIAL_MAX", 200),
+                holder_cluster_check=_bool("HOLDER_CLUSTER_CHECK", False),
+                holder_cluster_top_n=_int("HOLDER_CLUSTER_TOP_N", 4),
+                holder_cluster_warn=_int("HOLDER_CLUSTER_WARN", 2),
                 name_reuse_warn=_int("NAME_REUSE_WARN", 6),
                 creator_rep_min_tokens=_int("CREATOR_REP_MIN_TOKENS", 3),
                 creator_rep_rug_rate=_float("CREATOR_REP_RUG_RATE", 0.5),

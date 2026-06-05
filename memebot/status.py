@@ -66,6 +66,7 @@ def load_summary(db_path: str) -> dict:
                                          "ORDER BY id DESC LIMIT 8")
         s["recent_verdicts"] = _rows(conn, "SELECT symbol,action,mode,conviction,source FROM verdicts "
                                            "ORDER BY id DESC LIMIT 8")
+        s["verdict_sources"] = _rows(conn, "SELECT source, COUNT(*) FROM verdicts GROUP BY source")  # brain-usage rate
         s["recent_lessons"] = _rows(conn, "SELECT tag,lesson FROM lessons ORDER BY id DESC LIMIT 6")
         return s
     finally:
@@ -99,6 +100,16 @@ def render_summary(s: dict) -> str:
     if s.get("sell_reasons"):
         reasons = " ".join(f"{k}:{v}" for k, v in sorted(s["sell_reasons"].items()))
         out.append(f"exits: {reasons}")
+
+    # AI-brain usage (the vision check): of every DECIDED verdict, how many did the LLM brain drive vs
+    # the deterministic rule fallback? A tiny share = the bot is trading as a rule-bot (see brain_audit).
+    vs = s.get("verdict_sources") or []
+    total = sum(n for _, n in vs)
+    if total:
+        brain = sum(n for src, n in vs if src and str(src).lower() != "rule")
+        frac = brain / total
+        out.append(f"AI brain usage: {brain}/{total} decisions = {frac * 100:.1f}% LLM-driven"
+                   + ("  <- mostly RULE-driven; LLM up + accruing (see `brain_audit`)" if frac < 0.05 else ""))
 
     tr = s.get("tracking")
     if tr and tr[0] and tr[0][0]:

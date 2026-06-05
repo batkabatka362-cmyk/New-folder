@@ -568,12 +568,22 @@ def test_creator_reputation_recency_decay():
 
 
 def test_suggest_thresholds_detects_signed_velocity():
-    """P10b CAL2: a signed velocity feature with a legitimately-negative rug median is no longer dropped."""
+    """P10b CAL2 (REAL path): a signed velocity separator must emit a suggestion through the actual
+    build_dataset -> summarize -> suggest_thresholds chain. A hand-built summary hid a producer/consumer
+    bug (summarize() didn't compute the velocity features' medians, so CAL2 was dead code)."""
     from memebot.backtest.calibrate import suggest_thresholds
-    summary = {"classes": {"winner": {"n": 10, "price_change_m5": 3.0},
-                           "rug": {"n": 10, "price_change_m5": -8.0}}}
+    from memebot.backtest.dataset import build_dataset, summarize
+    rows = []
+    for i in range(6):                                   # winners: +120% forward, held; m5 strongly +
+        feats = {"liquidity_usd": 1e4, "price_change_m5": 5.0}
+        rows += [(f"w{i}", 0.0, 1.0, feats), (f"w{i}", 100.0, 2.2, feats)]
+    for i in range(6):                                   # rugs: -90% forward; m5 strongly - (rolling over)
+        feats = {"liquidity_usd": 1e4, "price_change_m5": -8.0}
+        rows += [(f"r{i}", 0.0, 1.0, feats), (f"r{i}", 100.0, 0.1, feats)]
+    summary = summarize(build_dataset(rows, horizon_s=300, tol_s=900))
+    assert "price_change_m5" in summary["classes"]["winner"]   # the producer now carries its median
     feats = [s["feature"] for s in suggest_thresholds(summary, min_class_n=5, min_sep=0.2)]
-    assert "price_change_m5" in feats
+    assert "price_change_m5" in feats                          # ...so the consumer can act on it
 
 
 def test_selectivity_sweep_counts_avoided_losers():
@@ -789,3 +799,44 @@ def test_gate_attribution_confusion_matrix():
     assert a["rug_dodge_recall"] == 0.5 and a["winner_loss_rate"] == 0.5
     assert a["reason_dodge"] == {"mint_not_revoked": 1}            # the check that dodged the rug
     assert a["reason_falsereject"] == {"buyers_low": 1}           # the check that lost a winner
+
+
+# ── holder funding-cluster (free-data concealed-concentration) ─────────────────
+def test_holder_funder_cluster_and_owner_resolution():
+    """Holder funding-cluster: the pure cluster fn + get_holder_owners (vault/burn excluded, deduped)."""
+    import asyncio
+    from memebot.feed.helius_rpc import HeliusRPC, largest_funder_cluster
+    assert largest_funder_cluster(["F", "F", "F", "G"]) == 3      # 3 share funder F = concealed cluster
+    assert largest_funder_cluster(["A", "B", "C"]) == 1           # all distinct -> no cluster
+    assert largest_funder_cluster([None, "", "F"]) == 1           # ignores None/empty
+    assert largest_funder_cluster([]) == 0
+
+    async def run():
+        h = HeliusRPC("https://x.helius-rpc.com/?api-key=k")
+        async def fake_largest(mint):
+            return [("VAULT", 1000.0), ("h1", 100.0), ("h2", 90.0), ("h1dup", 80.0)]
+        owner_of = {"h1": "ownerA", "h2": "ownerB", "h1dup": "ownerA"}   # h1dup -> same owner as h1
+        async def fake_rpc(method, params):
+            return {"value": {"data": {"parsed": {"info": {"owner": owner_of.get(params[0])}}}}}
+        h.get_largest_holders = fake_largest
+        h._rpc = fake_rpc
+        return await h.get_holder_owners("M", top_n=4, exclude_largest=True)
+    owners = asyncio.run(run())
+    assert "ownerA" in owners and "ownerB" in owners               # the vault (largest) is dropped
+    assert owners.count("ownerA") == 1                             # owners deduped
+
+
+# ── brain audit (is the LLM brain used / does it earn its keep?) ───────────────
+def test_brain_audit_usage_and_ab():
+    """deferred-5 #1: brain-usage rate (brain vs rule decisions) + per-source CLEAN-book A/B."""
+    from memebot.backtest.brain_audit import usage_rate, ab_book, _is_brain
+    assert _is_brain("ollama:gemma3:4b") and _is_brain("sonnet") and not _is_brain("rule")
+    u = usage_rate([("rule", 6511), ("ollama:gemma3:4b", 6), ("sonnet", 3)])
+    assert u["total"] == 6520 and u["brain"] == 9 and u["rule"] == 6511
+    assert abs(u["brain_frac"] - 9 / 6520) < 1e-9
+    # A/B: glitch round-trip (>20x) excluded; brain vs rule grouped; unlabeled kept separate
+    ab = ab_book([("ollama:gemma3:4b", 0.5, 0.5), ("ollama:gemma3:4b", -0.1, -0.1),
+                  ("rule", 0.2, 0.2), ("rule", 99.0, 50.0), (None, 1.0, 1.0)])
+    assert ab["brain"]["n"] == 2 and abs(ab["brain"]["net"] - 0.4) < 1e-9
+    assert ab["rule"]["n"] == 1                       # the 50x glitch row dropped, leaving 1 clean rule trade
+    assert ab["(unlabeled)"]["n"] == 1               # NULL-source rows tracked separately, not mixed in

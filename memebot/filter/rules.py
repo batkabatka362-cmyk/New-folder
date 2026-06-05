@@ -44,6 +44,12 @@ def scam_likelihood(c: Candidate, s: Settings) -> float:
     fcc = c.features.get("funder_creator_count")
     if fcc is not None and g.funder_serial_min <= fcc <= g.funder_serial_max:
         score += 0.15
+    # HOLDER funding-cluster: several "independent" top holders funded from ONE wallet = concealed
+    # single-entity concentration (the #1 missing-signal's free-data form). Graded scam penalty,
+    # advisory (the vault/CEX false-positive risk + noise keep it off the hard veto); calibrate from data.
+    hfc = c.features.get("holder_funder_cluster")
+    if hfc is not None and hfc >= g.holder_cluster_warn:
+        score += 0.20
     # DUPLICATION (user insight): the SAME name+ticker reused across many mints = a scam-factory reusing
     # branding (a fresh creator/funder can't hide the reused identity). SOFT + smaller weight (popular
     # memes are reused legitimately, so it's noisier than the wallet tells); advisory, calibrate from data.

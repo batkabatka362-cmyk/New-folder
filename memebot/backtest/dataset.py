@@ -110,7 +110,12 @@ def summarize(recs: list[dict]) -> dict:
     for r in recs:
         by_class[r["outcome"]].append(r)
     cols = ["liquidity_usd", "market_cap_usd", "vol_h1", "buy_sell_ratio",
-            "top5_concentration_pct", "sell_pressure", "creator_launches"]
+            "top5_concentration_pct", "sell_pressure", "creator_launches",
+            # P10b CAL2 fix: the velocity/trajectory features that calibrate._WATCH ALSO inspects — they
+            # MUST have a per-class median here or suggest_thresholds reads 0.0 and they can never emit a
+            # suggestion (the whole point of CAL2). Keep this list a superset of _WATCH's feature names.
+            "vol_to_mcap_pct", "vol_per_min", "off_high_pct", "price_change_m5", "price_change_h1",
+            "trend_chg_pct", "buyer_growth", "liq_trend_chg_pct"]
     med = lambda xs: statistics.median(xs) if xs else 0.0   # noqa: E731
     summary = {"n": len(recs), "classes": {}}
     for cls in CLASSES:

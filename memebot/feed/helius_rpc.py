@@ -46,6 +46,17 @@ def concentration_pct(amounts: list[float], total_supply: float,
     return min(100.0, sum(top) / denom * 100.0)
 
 
+def largest_funder_cluster(funders: list[str]) -> int:
+    """Holder funding-cluster (free-data concealed-concentration tell, RESEARCH.md's #1 missing signal
+    via funding rather than the G3 same-block tape): the count of distinct top-holder WALLETS that share
+    ONE funding source. >= 2 means several "independent" top holders were funded from the same wallet =
+    one entity hiding behind many wallets = concealed concentration / a coordinated dump setup. Ignores
+    None/empty funders. Pure + unit-testable."""
+    from collections import Counter
+    c = Counter(f for f in funders if f)
+    return max(c.values()) if c else 0
+
+
 class HeliusRPC:
     def __init__(self, rpc_url: str, rate_per_sec: float = 8.0) -> None:
         self.rpc_url = rpc_url
@@ -273,3 +284,29 @@ class HeliusRPC:
             return None
         amounts = [amt for addr, amt in holders if addr not in BURN_ADDRESSES]
         return concentration_pct(amounts, supply, topn=5, drop_largest=True)
+
+    async def get_holder_owners(self, mint: str, *, top_n: int = 4, exclude_largest: bool = True) -> list[str]:
+        """Resolve the OWNER WALLETS of a mint's top token-account holders (excludes burn addresses and,
+        by default, the single largest = pool/curve vault). getTokenLargestAccounts returns token
+        ACCOUNTS, not wallets, but funding-source clustering needs the wallets. [] on failure. One
+        getAccountInfo per holder, so the caller MUST bound top_n + cache (a token account's owner is
+        immutable). Returns deduped owner wallets in holder-size order."""
+        holders = await self.get_largest_holders(mint)
+        holders = [(a, amt) for a, amt in holders if a and a not in BURN_ADDRESSES and amt > 0]
+        if not holders:
+            return []
+        holders.sort(key=lambda x: x[1], reverse=True)
+        if exclude_largest:
+            holders = holders[1:]                       # drop the vault (same heuristic as top5_concentration)
+        owners: list[str] = []
+        seen: set[str] = set()
+        for acct, _ in holders[:max(0, top_n)]:
+            res = await self._rpc("getAccountInfo", [acct, {"encoding": "jsonParsed"}])
+            try:
+                owner = res["value"]["data"]["parsed"]["info"]["owner"]
+            except (TypeError, KeyError):
+                continue
+            if owner and owner not in seen:
+                seen.add(owner)
+                owners.append(owner)
+        return owners

@@ -598,3 +598,25 @@ never relaxes a gate, never spends real money) and degrades gracefully on any ex
 MEASUREMENT (pending data): the lift of A1/A2/A3/B1 on the rug-dodge rate must be measured via
 `backtest/rug_model.py` (dodge vs winner-loss) once the bot runs the new code and accrues labeled
 outcomes — the spec's §7 loop. Deploy -> accumulate -> measure; do NOT claim a lift before the data.
+
+---
+
+## Measurement spine + holder funding-cluster (this session, post-commit)
+
+- **Honest-measurement spine run + a new tool.** Established the rigorous baseline: CLEAN book
+  -1.709 SOL (NO-GO, loss-min as expected); separation NULL (no feature separates winners from
+  rugs); rug_model RUG-avoidance AUC 0.616 STABLE (the doctrine-aligned lever) vs winner 0.558
+  inconclusive. Built `backtest/gate_attribution.py` (spec section 7): the SAFETY GATE's rug-
+  avoidance confusion matrix -> baseline ~51% rug-dodge / ~41% winner-loss, with a per-named-reason
+  breakdown that populates as `rule_reasons` (now logged into observations) accrues -- so the A1/A2/
+  B1 deterministic-check lift (which should dodge rugs at ~zero winner cost) becomes measurable.
+  Initial commit 25355e5 captured the build through here.
+- **Holder funding-cluster (free-data concealed-concentration, RESEARCH.md's #1 missing signal via
+  FUNDING not the G3 tape).** `helius_rpc.get_holder_owners` resolves the top non-vault holders'
+  OWNER wallets (getTokenLargestAccounts returns token accounts, not wallets), `largest_funder_cluster`
+  flags when several "independent" top holders share ONE funder = one entity behind many wallets.
+  Wired into the safety path (cached, immutable funders), an advisory `scam_likelihood` penalty + a
+  brain signal. OFF by default (`holder_cluster_check`) -- costs several extra Helius reads per
+  survivor; enable when the RPC has headroom. Advisory (vault/CEX false-positive risk keeps it off the
+  hard veto). This is the free-data path to the coordinated-wallet signal G3 would otherwise be needed
+  for. (Post-commit; uncommitted.)

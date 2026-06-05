@@ -384,6 +384,12 @@ class TradingBrain:
             lines.append(
                 f"    funder cluster: this creator's FUNDING wallet has spawned {int(fcc)} distinct "
                 "creators (rotated wallets, one treasury — a serial operator hiding behind fresh creators)")
+        hfc = c.features.get("holder_funder_cluster")        # holder funding-cluster: concealed concentration
+        if hfc is not None and hfc >= self.s.safety.holder_cluster_warn:
+            lines.append(
+                f"    HOLDER cluster: {int(hfc)} of the top holders were funded from ONE wallet "
+                "(several 'independent' top holders are one entity behind many wallets -> concealed "
+                "concentration / coordinated-dump setup -> strong skip lean)")
         rug_rate = c.features.get("creator_rug_rate")        # P8: this creator's LEARNED track record
         if rug_rate is not None:
             rep_n = int(c.features.get('creator_rep_n', 0))
