@@ -1,0 +1,32 @@
+# Secrets — NEVER commit (API keys + wallet private keys live here)
+.env
+.env.local
+.env.*.local
+pumpportal_wallet.json
+*wallet*.json
+*.key
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Local data / artifacts (large, machine-local, all regenerable from the trade log)
+# the live SQLite trade log (WAL-mode; mutates every run — durable data is in archive/, not VCS)
+memebot.db
+*.db-shm
+*.db-wal
+# SQLite/runtime lock held by the live bot (git can't index it; not VCS content)
+*.db.lock
+*.lock
+# supervisor / bot runtime logs (grow every run; machine-local)
+*.log
+archive/
+dataset*.csv
+# backtest.dataset output (regenerate any time)
+classified.csv
+# trained GBM models + candidates/records + side outputs — keep local, not in VCS
+gbm_*.txt
+gbm_model.txt.*
+# scratch study diffs (e.g. _exitlab_diff.txt)
+*_diff.txt

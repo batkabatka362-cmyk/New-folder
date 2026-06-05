@@ -1,0 +1,30 @@
+# ── Core / async ───────────────────────────────────────────
+websockets>=12.0
+httpx[http2]>=0.27
+python-dotenv>=1.0
+
+# ── Solana (on-chain reads now; signing in Phase 5) ──────────
+solana>=0.34
+solders>=0.21
+
+# ── Data / indicators ────────────────────────────────────────
+pandas>=2.0
+numpy>=1.26
+ta>=0.11                  # trendline / momentum indicators (alt: pandas-ta-classic)
+
+# ── Storage ──────────────────────────────────────────────────
+pyarrow>=15.0             # Parquet export
+
+# ── Alerts (optional) ────────────────────────────────────────
+python-telegram-bot>=21,<23
+
+# ── Cloud decision layer (Phase 3) ───────────────────────────
+anthropic>=0.40
+pydantic>=2.6
+
+# ── Local fast filter (Phase 2) ──────────────────────────────
+lightgbm>=4.0
+# xgboost>=2.0            # alternative GBM
+
+# ── Optional local LLM (Phase 3, off by default) ─────────────
+# ollama
