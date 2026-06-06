@@ -111,6 +111,7 @@ class MomentumThresholds:
 
     volume_spike_mult: float = 2.5          # current vol > N x trailing avg
     min_vol_to_mcap_pct: float = 10.0       # < this == dead
+    max_vol_to_mcap_pct: float = 0.0        # WL12 band UPPER (0 = off). Velocity/volume-intensity sweet-spot: our data shows vol/mcap 15-40% wins 35% (vs 26%), while >40% is wash/dump territory (40-100% wins 25% / rugs 50%). The pro "healthy volume" band. Off by default (small upper-cohort n); set e.g. 50 to skip the manipulation zone.
     min_buy_sell_ratio: float = 1.0        # WL1 (winner_loss): was 1.5 — that hard gate lost 17 winners / dodged 16 rugs (48% precision = noise; buy/sell is non-predictive, AUC~0.5). 1.0 vetoes only net-SELLING (buys<sells) flow, keeps the [1.0,1.5) winners. Advisory-calibrated, not auto-tuned.
     min_liq_to_mcap_pct: float = 10.0
     min_vol_h1: float = 1500.0              # R2-a: 1h USD volume — the #1 winner signal (study + AI5); _norm full_at = 2x this
@@ -672,6 +673,7 @@ class Settings:
                 min_vol_h1=_float("MIN_VOL_H1", 1500.0),
                 min_unique_buyers=_int("MIN_UNIQUE_BUYERS", 20),   # WL11: 15->20 (band-validated)
                 max_unique_buyers=_int("MAX_UNIQUE_BUYERS", 0),     # WL11 band upper (0=off)
+                max_vol_to_mcap_pct=_float("MAX_VOL_TO_MCAP_PCT", 0.0),   # WL12 velocity band upper (0=off)
             ),
             risk=RiskLimits(
                 initial_sol=_float("INITIAL_SOL", 10.0),

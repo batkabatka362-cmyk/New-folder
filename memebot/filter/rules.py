@@ -135,6 +135,10 @@ def evaluate(c: Candidate, s: Settings) -> Candidate:
         reasons.append(f"buyers>{m.max_unique_buyers:g}")
     if c.vol_to_mcap_pct > 0 and c.vol_to_mcap_pct < m.min_vol_to_mcap_pct:
         reasons.append("vol/mcap_low")
+    # WL12 velocity band upper: vol/mcap > this is wash/dump territory (our data: >40% wins 25% / rugs
+    # 50% vs the 15-40% band's 35% win). Off by default (0). The healthy-volume sweet-spot, banded.
+    if m.max_vol_to_mcap_pct > 0 and c.vol_to_mcap_pct > m.max_vol_to_mcap_pct:
+        reasons.append("vol/mcap_high")
     # Guard breadth gates like the liquidity/vol gates above: only veto when the
     # data is actually present. Missing breadth (no DexScreener snapshot yet, e.g.
     # pre-index SCALP tokens) is a skip, not a hard veto via the 0 default. The
