@@ -1683,6 +1683,10 @@ def test_vision_parse_score_and_resolve_url():
     assert parse_score('{"scam_score": -2}') == 0.0                  # clamp <0
     assert parse_score('{"scam_score": "x"}') is None               # non-numeric -> unreadable
     assert parse_score('not json at all') is None and parse_score('') is None
+    # WL6 fix: the feature-boolean format (the discriminating prompt) -> derived 0..1 score
+    assert abs(parse_score('{"impersonation":true,"bait":false,"recycled_generic":false,"original_effort":false}') - 0.7) < 1e-9
+    assert parse_score('{"impersonation":false,"bait":false,"recycled_generic":false,"original_effort":true}') == 0.0   # 0.2-0.2 clamp
+    assert parse_score('{"impersonation":true,"bait":true,"recycled_generic":true,"original_effort":false}') == 1.0      # 1.2 clamp
     gw = "https://ipfs.io/ipfs/"
     assert resolve_url("ipfs://CID/img.png", gw) == "https://ipfs.io/ipfs/CID/img.png"
     assert resolve_url("https://x.com/a.png", gw) == "https://x.com/a.png"   # http passthrough
