@@ -231,9 +231,17 @@ def test_rules_gates():
     s = Settings()
     good = Candidate(mint="m")
     good.liquidity_usd, good.vol_to_mcap_pct, good.buy_sell_ratio, good.unique_buyers = 20000, 40, 2.5, 60
+    good.market_cap_usd = 50000               # WL10: above the min-mcap gate
     good.mint_revoked = good.freeze_revoked = True
     rules.evaluate(good, s)
     assert good.rule_passed
+
+    lowcap = Candidate(mint="lc")             # WL10: sub-$10K mcap -> vetoed (dead-on-arrival cohort)
+    lowcap.liquidity_usd, lowcap.vol_to_mcap_pct, lowcap.buy_sell_ratio, lowcap.unique_buyers = 20000, 40, 2.5, 60
+    lowcap.market_cap_usd = 4000
+    lowcap.mint_revoked = lowcap.freeze_revoked = True
+    rules.evaluate(lowcap, s)
+    assert not lowcap.rule_passed and any("mcap<" in x for x in lowcap.rule_reasons)
 
     honeypot = Candidate(mint="b")
     honeypot.liquidity_usd, honeypot.vol_to_mcap_pct, honeypot.buy_sell_ratio, honeypot.unique_buyers = 20000, 40, 2.5, 60

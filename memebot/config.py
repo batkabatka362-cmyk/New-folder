@@ -127,6 +127,7 @@ class RiskLimits:
     daily_loss_cap_sol: float = 1.5         # circuit breaker ~15% of equity (was 2.0)
     per_token_cooldown_s: float = 300.0     # after a loss on a token
     min_liquidity_usd: float = 3_000.0
+    min_market_cap_usd: float = 10_000.0    # WL10 (Axiom/DexScreener pro-trader filter, data-confirmed): skip sub-$10K launches — our own classified data shows the <$10K cohort wins 14% vs 26% (the "dead-on-arrival" rugs). 0 disables. (Only ~7% of our traded set is sub-$10K, so it's a mild, safe funnel tightening, not a regime change.)
     max_modeled_slippage_pct: float = 15.0  # skip fill if impact worse
     risk_per_trade_frac: float = 0.04       # equity fraction per trade at full size -> compounds (was 0.05)
     max_position_equity_frac: float = 0.05  # D5 HARD per-trade ceiling: one position's SOL (= its FULL rug loss) can never exceed this fraction of equity, independent of size_pct/risk_per_trade_frac. A robust survival invariant set just ABOVE risk_per_trade_frac (a backstop, not a normal-path constraint) — guarantees the bound even if sizing assumptions change or equity is drawn down.
@@ -679,6 +680,8 @@ class Settings:
                 # silently did nothing despite the docs promising they were overridable.
                 per_token_cooldown_s=_float("PER_TOKEN_COOLDOWN_S", 300.0),
                 min_liquidity_usd=_float("MIN_LIQUIDITY_USD", 3_000.0),
+                min_market_cap_usd=_float("MIN_MARKET_CAP_USD", 10_000.0),   # WL10: Axiom pro-filter, data-confirmed
+
                 max_modeled_slippage_pct=_float("MAX_MODELED_SLIPPAGE_PCT", 15.0),
                 risk_per_trade_frac=_float("RISK_PER_TRADE_FRAC", 0.04),
                 max_position_equity_frac=_float("MAX_POSITION_EQUITY_FRAC", 0.05),

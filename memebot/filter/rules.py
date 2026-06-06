@@ -122,6 +122,10 @@ def evaluate(c: Candidate, s: Settings) -> Candidate:
     # ── market gates ──────────────────────────────────────────────────────────
     if c.liquidity_usd > 0 and c.liquidity_usd < r.min_liquidity_usd:
         reasons.append(f"liquidity<{r.min_liquidity_usd:g}")
+    # WL10: min market-cap gate (Axiom/DexScreener pro-trader filter, confirmed on our own classified
+    # data — the sub-$10K cohort wins 14% vs 26%, the dead-on-arrival rugs). Only when mcap is known.
+    if r.min_market_cap_usd > 0 and c.market_cap_usd > 0 and c.market_cap_usd < r.min_market_cap_usd:
+        reasons.append(f"mcap<{r.min_market_cap_usd:g}")
     if c.vol_to_mcap_pct > 0 and c.vol_to_mcap_pct < m.min_vol_to_mcap_pct:
         reasons.append("vol/mcap_low")
     # Guard breadth gates like the liquidity/vol gates above: only veto when the
