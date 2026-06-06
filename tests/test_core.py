@@ -243,6 +243,16 @@ def test_rules_gates():
     rules.evaluate(lowcap, s)
     assert not lowcap.rule_passed and any("mcap<" in x for x in lowcap.rule_reasons)
 
+    from memebot.config import RiskLimits      # WL11: band UPPER bound (off by default; vetoes when set)
+    big = Candidate(mint="big")
+    big.liquidity_usd, big.vol_to_mcap_pct, big.buy_sell_ratio, big.unique_buyers = 20000, 40, 2.5, 60
+    big.market_cap_usd = 500000               # above a configured 200k band upper
+    big.mint_revoked = big.freeze_revoked = True
+    rules.evaluate(big, Settings(risk=RiskLimits(max_market_cap_usd=200000)))
+    assert not big.rule_passed and any("mcap>" in x for x in big.rule_reasons)
+    rules.evaluate(big, s)                     # default (max off) -> the same big-mcap candidate passes
+    assert big.rule_passed
+
     honeypot = Candidate(mint="b")
     honeypot.liquidity_usd, honeypot.vol_to_mcap_pct, honeypot.buy_sell_ratio, honeypot.unique_buyers = 20000, 40, 2.5, 60
     honeypot.mint_revoked, honeypot.freeze_revoked = True, False

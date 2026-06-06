@@ -126,6 +126,13 @@ def evaluate(c: Candidate, s: Settings) -> Candidate:
     # data — the sub-$10K cohort wins 14% vs 26%, the dead-on-arrival rugs). Only when mcap is known.
     if r.min_market_cap_usd > 0 and c.market_cap_usd > 0 and c.market_cap_usd < r.min_market_cap_usd:
         reasons.append(f"mcap<{r.min_market_cap_usd:g}")
+    # WL11: BAND upper bounds (the user's "ranges, not just minimums" insight). Off by default (0); the
+    # data's sweet-spots are mcap $40-150K + holders 20-150 (win 34% / rug 23% vs 26%/31%). A too-high
+    # mcap/holder count = a late/already-mooned entry. Only vetoes when the cap is set AND data is known.
+    if r.max_market_cap_usd > 0 and c.market_cap_usd > r.max_market_cap_usd:
+        reasons.append(f"mcap>{r.max_market_cap_usd:g}")
+    if m.max_unique_buyers > 0 and c.unique_buyers > m.max_unique_buyers:
+        reasons.append(f"buyers>{m.max_unique_buyers:g}")
     if c.vol_to_mcap_pct > 0 and c.vol_to_mcap_pct < m.min_vol_to_mcap_pct:
         reasons.append("vol/mcap_low")
     # Guard breadth gates like the liquidity/vol gates above: only veto when the

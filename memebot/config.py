@@ -114,7 +114,8 @@ class MomentumThresholds:
     min_buy_sell_ratio: float = 1.0        # WL1 (winner_loss): was 1.5 — that hard gate lost 17 winners / dodged 16 rugs (48% precision = noise; buy/sell is non-predictive, AUC~0.5). 1.0 vetoes only net-SELLING (buys<sells) flow, keeps the [1.0,1.5) winners. Advisory-calibrated, not auto-tuned.
     min_liq_to_mcap_pct: float = 10.0
     min_vol_h1: float = 1500.0              # R2-a: 1h USD volume — the #1 winner signal (study + AI5); _norm full_at = 2x this
-    min_unique_buyers: int = 15             # breadth defeats wash bots
+    min_unique_buyers: int = 20             # WL11 (band analysis, user's "ranges" insight): 15->20 — our own data shows the <20-holder cohort wins 19% / rugs 36% (n=94) vs the 20-40 band's 28% / 17%. breadth defeats wash bots + the <20 cohort is the dead/rug zone.
+    max_unique_buyers: int = 0              # WL11 band UPPER bound (0 = off). Data hints >150 holders = late/dump (win 0%, n=7) but n is too small to default-on; configurable for the user's banded funnel.
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,7 @@ class RiskLimits:
     per_token_cooldown_s: float = 300.0     # after a loss on a token
     min_liquidity_usd: float = 3_000.0
     min_market_cap_usd: float = 10_000.0    # WL10 (Axiom/DexScreener pro-trader filter, data-confirmed): skip sub-$10K launches — our own classified data shows the <$10K cohort wins 14% vs 26% (the "dead-on-arrival" rugs). 0 disables. (Only ~7% of our traded set is sub-$10K, so it's a mild, safe funnel tightening, not a regime change.)
+    max_market_cap_usd: float = 0.0         # WL11 band UPPER bound (0 = off). The data's safest zone is mcap $70-150K (rug 9% vs 31%); the pro band is $50K-$1M. Off by default (capping risks overfitting our small high-mcap sample) but configurable for the user's banded funnel — e.g. set 1_000_000 to skip already-mooned late entries.
     max_modeled_slippage_pct: float = 15.0  # skip fill if impact worse
     risk_per_trade_frac: float = 0.04       # equity fraction per trade at full size -> compounds (was 0.05)
     max_position_equity_frac: float = 0.05  # D5 HARD per-trade ceiling: one position's SOL (= its FULL rug loss) can never exceed this fraction of equity, independent of size_pct/risk_per_trade_frac. A robust survival invariant set just ABOVE risk_per_trade_frac (a backstop, not a normal-path constraint) — guarantees the bound even if sizing assumptions change or equity is drawn down.
@@ -668,7 +670,8 @@ class Settings:
                 min_buy_sell_ratio=_float("MIN_BUY_SELL_RATIO", 1.0),   # WL1: keep load() default in sync with the dataclass (winner_loss-calibrated 1.5->1.0)
                 min_liq_to_mcap_pct=_float("MIN_LIQ_TO_MCAP_PCT", 10.0),
                 min_vol_h1=_float("MIN_VOL_H1", 1500.0),
-                min_unique_buyers=_int("MIN_UNIQUE_BUYERS", 15),
+                min_unique_buyers=_int("MIN_UNIQUE_BUYERS", 20),   # WL11: 15->20 (band-validated)
+                max_unique_buyers=_int("MAX_UNIQUE_BUYERS", 0),     # WL11 band upper (0=off)
             ),
             risk=RiskLimits(
                 initial_sol=_float("INITIAL_SOL", 10.0),
@@ -681,6 +684,7 @@ class Settings:
                 per_token_cooldown_s=_float("PER_TOKEN_COOLDOWN_S", 300.0),
                 min_liquidity_usd=_float("MIN_LIQUIDITY_USD", 3_000.0),
                 min_market_cap_usd=_float("MIN_MARKET_CAP_USD", 10_000.0),   # WL10: Axiom pro-filter, data-confirmed
+                max_market_cap_usd=_float("MAX_MARKET_CAP_USD", 0.0),         # WL11 band upper (0=off)
 
                 max_modeled_slippage_pct=_float("MAX_MODELED_SLIPPAGE_PCT", 15.0),
                 risk_per_trade_frac=_float("RISK_PER_TRADE_FRAC", 0.04),
