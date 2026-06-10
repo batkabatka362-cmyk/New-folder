@@ -100,10 +100,11 @@ def _simulate(bars, decide, fee, warmup, clip=3.0, stop_k=0.0, slippage_bps=0.0)
         if pos == 1 and stop_k > 0 and entry_price > 0 and (entry_price - closes[i]) / entry_price >= stop_k:
             new = 0                                # hard stop overrides the strategy's hold (matches engine)
         if new != pos:
-            eq *= _side_cost                       # transition cost = fee/2 + slippage, per side
             if new == 1:
+                entry_eq = eq                      # capture BEFORE the entry cost so the per-trade return
+            eq *= _side_cost                       # includes BOTH sides (matches the live engine's pnl_pct);
+            if new == 1:                           # transition cost = fee/2 + slippage, per side
                 n_trades += 1
-                entry_eq = eq
                 entry_price = closes[i]
             elif pos == 1 and entry_eq:
                 trade_rets.append(eq / entry_eq - 1.0)
