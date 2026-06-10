@@ -29,6 +29,14 @@ _LIVE_PARAMS = "swing_live_params.json"   # WL25: a promoted config overrides th
 _REPLAY_CAP = 50          # max closed bars to replay after a poll gap (bounds a long-outage catch-up)
 
 
+def _reconstruct(cls, d: dict):
+    """Build a dataclass from a dict keeping only its CURRENT fields (schema-drift safe: unknown keys are
+    dropped; a missing REQUIRED field raises TypeError, which _load catches to start fresh)."""
+    import dataclasses
+    valid = {f.name for f in dataclasses.fields(cls)}
+    return cls(**{k: v for k, v in d.items() if k in valid})
+
+
 def _load_live_params() -> dict:
     """A self-improvement PROMOTION (swing_live_params.json) overrides the .env window/dip_k. Empty/absent
     -> use the config defaults. Delete the file to revert to the .env config."""
@@ -77,7 +85,12 @@ class SwingRunner:
                 "last_discover": self._last_discover,       # don't re-fire discovery on every restart
                 "promote_streak": self._promote_streak,     # WL25 self-improvement persistence
             }
-            json.dump(state, open(_STATE, "w"))
+            # ATOMIC write: dump to a temp file then os.replace, so a crash mid-write can never leave a
+            # truncated swing_state.json that the next _load would choke on.
+            tmp = _STATE + ".tmp"
+            with open(tmp, "w") as fh:
+                json.dump(state, fh)
+            os.replace(tmp, _STATE)
         except OSError as e:
             log.debug("swing state save failed: %s", type(e).__name__)
 
@@ -87,20 +100,35 @@ class SwingRunner:
         try:
             st = json.load(open(_STATE))
         except (ValueError, OSError):
+            log.warning("swing state file unreadable/corrupt — starting fresh")
             return
-        self.engine.cash = float(st.get("cash", self.engine.cash))
-        self.engine.initial = float(st.get("initial", self.engine.initial))
-        self.engine.positions = {p["mint"]: SwingPosition(**p) for p in st.get("positions", [])}
-        self.engine.closed = [SwingClosed(**c) for c in st.get("closed", [])]
-        self._last_bar = {k: float(v) for k, v in st.get("last_bar", {}).items()}
-        self._last_discover = float(st.get("last_discover", 0.0))
-        self._promote_streak = dict(st.get("promote_streak", {}))
+        try:
+            # SCHEMA-DRIFT SAFE: filter each dict to the dataclass's CURRENT fields (a code change that
+            # adds/removes a field must NOT crash-loop the supervisor via a TypeError on **unpacking).
+            self.engine.cash = float(st.get("cash", self.engine.cash))
+            self.engine.initial = float(st.get("initial", self.engine.initial))
+            self.engine.positions = {p["mint"]: _reconstruct(SwingPosition, p) for p in st.get("positions", [])}
+            self.engine.closed = [_reconstruct(SwingClosed, c) for c in st.get("closed", [])]
+            self._last_bar = {k: float(v) for k, v in st.get("last_bar", {}).items()}
+            self._last_discover = float(st.get("last_discover", 0.0))
+            self._promote_streak = dict(st.get("promote_streak", {}))
+        except (TypeError, KeyError, ValueError) as e:
+            log.warning("swing state schema drift on load (%s) — starting fresh", type(e).__name__)
+            self.engine.cash = self.engine.initial
+            self.engine.positions, self.engine.closed, self._last_bar, self._promote_streak = {}, [], {}, {}
+            return
         log.info("swing: resumed state (cash=%.3f, open=%d, closed=%d)",
                  self.engine.cash, len(self.engine.positions), len(self.engine.closed))
 
     async def _scan_once(self, client) -> None:
         price_map = {}
-        for sym, mint in self.universe.items():
+        # scan the universe PLUS any HELD position whose token has dropped out of it — a held position must
+        # keep being managed (stop/time-stop/exit) even after the liquidity filter drops its token, or it
+        # would be stranded with no exit.
+        items = list(self.universe.items())
+        u_mints = set(self.universe.values())
+        items += [(p.symbol, m) for m, p in self.engine.positions.items() if m not in u_mints]
+        for sym, mint in items:
             bars = await client.chart(mint, self.s.swing_interval)
             if len(bars) < 2:                                  # need a closed bar + the forming bar
                 continue

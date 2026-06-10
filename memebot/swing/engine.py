@@ -7,6 +7,7 @@ round-trip `fee_pct` split half on entry and half on exit. PAPER-ONLY.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from .strategy import dip_depth, mean_rev_position
@@ -118,7 +119,9 @@ class SwingEngine:
         """Apply the mean-reversion rule to one token's latest close series. Returns ('enter'|'exit', obj)
         when a (paper) trade fired, else None. The runner is responsible for only calling this once per
         new bar (so bars_held + the time-stop count bars, not polls)."""
-        if not closes or closes[-1] <= 0:
+        # GLITCH/finite guard: a NaN/inf/<=0 price from a bad OHLCV bar must never enter/exit/price a
+        # position or corrupt the ledger — skip this bar entirely (the held position is re-checked next bar).
+        if not closes or not math.isfinite(closes[-1]) or closes[-1] <= 0:
             return None
         held = self.positions.get(mint)
         cur = 1 if held else 0
@@ -146,8 +149,14 @@ class SwingEngine:
 
     # ---- accounting ----------------------------------------------------------------------------------
     def equity(self, price_map: dict[str, float]) -> float:
-        """Cash + open positions marked at the supplied current prices (mint->price)."""
-        held = sum(p.qty * price_map.get(m, p.entry_price) for m, p in self.positions.items())
+        """Cash + open positions marked at the supplied current prices (mint->price). A non-finite/<=0
+        mark falls back to the entry price so a single glitch quote can't poison the equity line."""
+        held = 0.0
+        for m, p in self.positions.items():
+            px = price_map.get(m, p.entry_price)
+            if not math.isfinite(px) or px <= 0:
+                px = p.entry_price
+            held += p.qty * px
         return self.cash + held
 
     def stats(self) -> dict:

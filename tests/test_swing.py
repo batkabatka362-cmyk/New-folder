@@ -261,3 +261,48 @@ def test_runner_multibar_gap_replay():
     asyncio.run(r._scan_once(FakeClient()))
     held = r.engine.positions.get("MINT")
     assert held is not None and held.bars_held == 3                 # replayed exactly the 3 new closed bars
+
+
+def test_engine_glitch_price_guard():
+    """EXCELLENCE (audit): a NaN/inf/<=0 glitch price must never enter/exit/price a position or crash."""
+    import math
+    eng = SwingEngine(SwingParams(window=2, dip_k=0.0, fee_pct=0.0, size_sol=1.0), initial_sol=10.0)
+    for bad in (float("nan"), float("inf"), 0.0, -5.0):
+        assert eng.step("A", "A", [100.0, bad], 1.0) is None        # glitch -> no action
+    assert not eng.positions                                        # nothing entered on a glitch
+    eng.step("A", "A", [100.0, 90.0], 2.0)                          # a clean dip enters
+    assert math.isfinite(eng.equity({"A": float("inf")}))          # a glitch MARK falls back to entry price
+
+
+def test_reconstruct_schema_drift():
+    """EXCELLENCE (audit): _reconstruct drops unknown keys so a state-schema change can't crash the loader."""
+    from memebot.swing.runner import _reconstruct
+    from memebot.swing.engine import SwingPosition
+    d = {"mint": "M", "symbol": "S", "qty": 1.0, "entry_price": 100.0, "entry_ts": 0.0, "sol_in": 1.0,
+         "dip_at_entry": 0.18, "bars_held": 2, "REMOVED_FIELD": 999}        # a stale/extra field
+    p = _reconstruct(SwingPosition, d)
+    assert p.mint == "M" and p.bars_held == 2 and not hasattr(p, "REMOVED_FIELD")
+
+
+def test_runner_manages_held_not_in_universe():
+    """EXCELLENCE (audit): a held position whose token left the universe is still STEPPED (managed), not
+    stranded with no exit."""
+    import asyncio
+    from memebot.swing.runner import SwingRunner
+    from memebot.swing.engine import SwingPosition
+    from memebot.config import Settings
+    r = SwingRunner(Settings.load())
+    r._save = lambda: None
+    r.universe = {}                                                 # token has dropped OUT of the universe
+    r.engine.positions["M"] = SwingPosition("M", "SYM", 1.0, 100.0, 0.0, 1.0, 0.18, 0)
+    r._last_bar["M"] = 2000.0
+    bars = [{"close": 100.0, "high": 101, "low": 99, "time": 1000},
+            {"close": 100.0, "high": 101, "low": 99, "time": 2000},
+            {"close": 100.0, "high": 101, "low": 99, "time": 3000},        # one NEW closed bar
+            {"close": 100.0, "high": 101, "low": 99, "time": 4000}]        # forming
+
+    class FakeClient:
+        async def chart(self_, mint, interval):
+            return bars
+    asyncio.run(r._scan_once(FakeClient()))
+    assert r.engine.positions["M"].bars_held == 1                  # managed (stepped) despite not in universe
