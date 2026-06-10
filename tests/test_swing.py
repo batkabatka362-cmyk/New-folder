@@ -143,6 +143,16 @@ def test_swing_readiness_gate():
     losing = [{"pnl_sol": -0.2}] * 40
     r2 = assess(losing, min_trades=40, min_pf=1.2, min_winrate=0.5)
     assert r2["go"] is False and any("net" in x for x in r2["reasons"])
+    # pf-only NO-GO: net-positive + enough trades + adequate win-rate, but a few big losses drag pf under the
+    # floor -> the profit-factor branch must be the DECIDING reject (isolates pf from the net/win-rate gates).
+    pf_short = [{"pnl_sol": 0.2}] * 24 + [{"pnl_sol": -0.28}] * 16   # 40 trades, 60% win, net +0.32, pf ~1.07
+    r3 = assess(pf_short, min_trades=40, min_pf=1.2, min_winrate=0.5)
+    assert r3["go"] is False and r3["net"] > 0 and r3["win_rate"] >= 0.5
+    assert any("profit factor" in x for x in r3["reasons"]) and not any("net" in x for x in r3["reasons"])
+    # infinite-PF (no-loss) edge branch: all winners -> gross_loss==0 -> pf=inf must read GO, not crash/NaN.
+    all_win = [{"pnl_sol": 0.1}] * 40
+    r4 = assess(all_win, min_trades=40, min_pf=1.2, min_winrate=0.5)
+    assert r4["go"] is True and r4["pf"] == float("inf")
 
 
 def test_promote_self_improvement():
@@ -208,3 +218,22 @@ def test_run_discovery_smoke():
     assert isinstance(rows, list) and rows
     g, name, r, passed = rows[0]
     assert isinstance(name, str) and {"n", "train_gmean", "test_gmean"} <= set(r) and isinstance(passed, bool)
+
+
+def test_engine_simulate_cost_parity():
+    """EXCELLENCE regression: the LIVE engine and the BACKTEST _simulate must agree on a trade's net return
+    (locks in the WL21 entry-cost parity fix). Same dip->bounce + same fee+slippage -> identical per-trade
+    pnl, so the forward book is honestly comparable to the validated backtest."""
+    from memebot.backtest.swing_lab import _simulate, mean_rev
+    W, K, FEE, SLIP = 3, 0.10, 0.02, 30.0
+    closes = [100.0, 100.0, 100.0, 80.0, 110.0, 105.0]               # flat -> deep dip -> reversion bounce
+    bars = [{"close": c, "high": c * 1.01, "low": c * 0.99, "time": i * 1000} for i, c in enumerate(closes)]
+    eng = SwingEngine(SwingParams(window=W, dip_k=K, exit_k=0.0, fee_pct=FEE, slippage_bps=SLIP, size_sol=1.0),
+                      initial_sol=10.0)
+    eng.step("M", "M", closes[:3], 1.0)                              # no dip
+    eng.step("M", "M", closes[:4], 2.0)                             # enter at 80
+    eng.step("M", "M", closes[:5], 3.0)                             # reversion -> exit at 110
+    assert len(eng.closed) == 1
+    _eq, _nt, _nw, trade_rets = _simulate(bars, mean_rev(W, K), FEE, W, clip=3.0, slippage_bps=SLIP)
+    assert len(trade_rets) == 1
+    assert abs(eng.closed[0].pnl_pct - trade_rets[0]) < 1e-9        # full parity: same prices + same per-side cost
