@@ -76,7 +76,7 @@ class SwingEngine:
             if deployed + self.p.size_sol > self.p.max_total_exposure_sol:
                 return False
         if self.p.rolling_loss_halt_sol > 0 and self.closed:
-            recent = self.closed[-self.p.loss_halt_lookback:]
+            recent = self.closed[-max(1, self.p.loss_halt_lookback):]   # clamp: lookback<=0 would take ALL
             if sum(c.pnl_sol for c in recent) <= -self.p.rolling_loss_halt_sol:
                 return False
         return True

@@ -391,6 +391,7 @@ class Settings:
     # are still managed/exited; only NEW dip-buys pause.
     swing_rolling_loss_halt_sol: float = 3.0    # halt NEW entries once realized loss over the window <= -this (0=off)
     swing_loss_halt_lookback: int = 20          # how many recent closed trades the rolling-loss halt sums
+    swing_min_liquidity_usd: float = 50_000.0   # universe prune floor: drop a token below this pool liquidity
     # GO-LIVE GATE (advisory — `python -m memebot.readiness`): the explicit, auditable criteria that must
     # ALL hold on the HONEST (CLEAN, glitch-excluded) realized book before real money is even considered.
     # A single lucky AUC can't satisfy this; it's the durable-PnL gate. NEVER auto-flips live mode.
@@ -699,6 +700,7 @@ class Settings:
             swing_max_total_exposure_sol=_float("SWING_MAX_TOTAL_EXPOSURE_SOL", 0.0),
             swing_rolling_loss_halt_sol=_float("SWING_ROLLING_LOSS_HALT_SOL", 3.0),
             swing_loss_halt_lookback=_int("SWING_LOSS_HALT_LOOKBACK", 20),
+            swing_min_liquidity_usd=_float("SWING_MIN_LIQUIDITY_USD", 50_000.0),
             go_live_min_trades=_int("GO_LIVE_MIN_TRADES", 100),
             go_live_min_profit_factor=_float("GO_LIVE_MIN_PROFIT_FACTOR", 1.3),
             gbm_shadow_model_path=_str("GBM_SHADOW_MODEL_PATH", ""),

@@ -22,6 +22,7 @@ from .universe import liquid_universe
 
 log = get_logger("swing.runner")
 _STATE = "swing_state.json"
+_REPLAY_CAP = 50          # max closed bars to replay after a poll gap (bounds a long-outage catch-up)
 
 
 class SwingRunner:
@@ -47,9 +48,11 @@ class SwingRunner:
         try:
             state = {
                 "cash": self.engine.cash,
+                "initial": self.engine.initial,            # restore the equity-log baseline on resume
                 "positions": [vars(p) for p in self.engine.positions.values()],
                 "closed": [vars(c) for c in self.engine.closed],
                 "last_bar": self._last_bar,
+                "last_discover": self._last_discover,       # don't re-fire discovery on every restart
             }
             json.dump(state, open(_STATE, "w"))
         except OSError as e:
@@ -63,9 +66,11 @@ class SwingRunner:
         except (ValueError, OSError):
             return
         self.engine.cash = float(st.get("cash", self.engine.cash))
+        self.engine.initial = float(st.get("initial", self.engine.initial))
         self.engine.positions = {p["mint"]: SwingPosition(**p) for p in st.get("positions", [])}
         self.engine.closed = [SwingClosed(**c) for c in st.get("closed", [])]
         self._last_bar = {k: float(v) for k, v in st.get("last_bar", {}).items()}
+        self._last_discover = float(st.get("last_discover", 0.0))
         log.info("swing: resumed state (cash=%.3f, open=%d, closed=%d)",
                  self.engine.cash, len(self.engine.positions), len(self.engine.closed))
 
@@ -73,31 +78,35 @@ class SwingRunner:
         price_map = {}
         for sym, mint in self.universe.items():
             bars = await client.chart(mint, self.s.swing_interval)
-            if len(bars) < self.p.window + 1:
+            if len(bars) < 2:                                  # need a closed bar + the forming bar
                 continue
             closes_all = [float(b["close"]) for b in bars]
             ts = float(bars[-1].get("time", 0.0))
             price_map[mint] = closes_all[-1]                  # mark-to-market every poll (forming bar ok for equity)
-            # Decide EXACTLY ONCE per CLOSED candle: act only when a new bar has appeared (the previous one
-            # just closed), and decide on the CLOSED series (drop the still-forming last bar). This stops
-            # entries/exits repainting intra-bar and makes bars_held count BARS, not 30-min polls — matching
-            # the backtest's one-decision-per-closed-bar contract. (Prior `if True` stepped every poll: a
-            # max_hold_bars time-stop fired ~8x early and entries fired on transient mid-candle prints.)
-            new_bar = ts > self._last_bar.get(mint, 0.0)
-            res = None
-            if new_bar:
-                self._last_bar[mint] = ts
-                closed = closes_all[:-1]
-                if len(closed) >= self.p.window:
-                    res = self.engine.step(mint, sym, closed, float(bars[-2].get("time", ts)))
-            if res:
-                kind, obj = res
-                if kind == "enter":
-                    log.info("swing ENTER %s @ %.6g (dip %.0f%% below SMA, size %.2f SOL)",
-                             sym, obj.entry_price, obj.dip_at_entry * 100, obj.sol_in)
-                else:
-                    log.info("swing EXIT  %s @ %.6g -> PnL %+.3f SOL (%+.1f%%) [%s]",
-                             sym, obj.exit_price, obj.pnl_sol, obj.pnl_pct * 100, obj.reason)
+            last = self._last_bar.get(mint, 0.0)
+            latest_closed_ts = float(bars[-2].get("time", ts))
+            if last <= 0.0:
+                # First sighting: set the baseline to the latest CLOSED bar, do NOT act on history (no
+                # back-entering on an old dip). We only act on bars that close after we start watching.
+                self._last_bar[mint] = latest_closed_ts
+                continue
+            # Step ONCE per CLOSED candle, on the CLOSED series (drop the still-forming last bar) so decisions
+            # never repaint intra-bar and bars_held counts BARS not polls. REPLAY every closed bar newer than
+            # the last one we stepped, oldest-first + capped — a multi-hour outage closes several bars at once,
+            # and collapsing them to one step would lose closed-bar decisions + under-count bars_held (a held
+            # position still gets its stop/exit on any data; entries no-op below the SMA window inside step()).
+            new_idx = [k for k in range(len(bars) - 1) if float(bars[k].get("time", 0.0)) > last][-_REPLAY_CAP:]
+            for k in new_idx:
+                res = self.engine.step(mint, sym, closes_all[:k + 1], float(bars[k].get("time", ts)))
+                self._last_bar[mint] = float(bars[k].get("time", ts))
+                if res:
+                    kind, obj = res
+                    if kind == "enter":
+                        log.info("swing ENTER %s @ %.6g (dip %.0f%% below SMA, size %.2f SOL)",
+                                 sym, obj.entry_price, obj.dip_at_entry * 100, obj.sol_in)
+                    else:
+                        log.info("swing EXIT  %s @ %.6g -> PnL %+.3f SOL (%+.1f%%) [%s]",
+                                 sym, obj.exit_price, obj.pnl_sol, obj.pnl_pct * 100, obj.reason)
             await asyncio.sleep(0.35)        # rate-limit courtesy
         eq = self.engine.equity(price_map)
         st = self.engine.stats()
@@ -139,7 +148,7 @@ class SwingRunner:
             return
         self._load()
         async with SolanaTrackerClient(self.s.solanatracker_api_key, self.s.solanatracker_base_url) as client:
-            self.universe = await liquid_universe(client)
+            self.universe = await liquid_universe(client, min_liquidity_usd=self.s.swing_min_liquidity_usd)
             log.info("swing mode LIVE (paper) | %d tokens | %s bars | SMA%d dip%.0f%% | size %.2f SOL | scan %.0fs",
                      len(self.universe), self.s.swing_interval, self.p.window, self.p.dip_k * 100,
                      self.p.size_sol, self.s.swing_scan_interval_s)

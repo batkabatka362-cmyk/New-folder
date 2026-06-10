@@ -93,9 +93,9 @@ def test_engine_kill_switch():
     assert len(eng2.positions) == 1
 
 
-def test_runner_steps_once_per_closed_bar():
-    """WL20 rank-1 (the bug): repeated polls with the SAME latest-bar ts must NOT step the engine twice
-    (no per-poll over-counting of bars_held, no intra-bar repaint)."""
+def test_runner_first_sighting_then_steps_once():
+    """WL20/WL21 rank-1: first sighting sets the baseline (no acting on history); a NEWLY-closed bar steps
+    the engine exactly once; re-polling the same bars does NOT double-step (no bars_held over-count / repaint)."""
     import asyncio
     from memebot.swing.runner import SwingRunner
     from memebot.config import Settings
@@ -103,24 +103,34 @@ def test_runner_steps_once_per_closed_bar():
     r._save = lambda: None                                          # don't write swing_state.json in the test
     r.universe = {"SYM": "MINT"}
     flat = [{"close": 100.0, "high": 101, "low": 99, "time": i * 1000} for i in range(25)]
-    bars = flat + [{"close": 70.0, "high": 101, "low": 69, "time": 25000}]   # last CLOSED bar is a deep dip
-    bars += [{"close": 71.0, "high": 72, "low": 70, "time": 26000}]          # a still-forming bar (excluded)
+    scan1 = flat + [{"close": 100.0, "high": 101, "low": 99, "time": 25000}]            # only a forming bar
+    scan2 = flat + [{"close": 70.0, "high": 101, "low": 69, "time": 25000},             # the dip just CLOSED
+                    {"close": 71.0, "high": 72, "low": 70, "time": 26000}]              # + a new forming bar
+    seq = [scan1, scan2, scan2]                                     # scan3 re-polls scan2 (no new bar)
 
     class FakeClient:
         base_url = ""
+        def __init__(self_):
+            self_.i = 0
         async def chart(self_, mint, interval):
-            return bars
+            b = seq[min(self_.i, len(seq) - 1)]
+            self_.i += 1
+            return b
 
     async def run():
         c = FakeClient()
-        await r._scan_once(c)
-        h1 = r.engine.positions.get("MINT")
-        await r._scan_once(c)                                       # identical poll, same ts -> must not re-step
-        h2 = r.engine.positions.get("MINT")
-        return h1, h2
-    h1, h2 = asyncio.run(run())
-    assert h1 is not None                                           # entered on the closed dip bar
-    assert h1.bars_held == h2.bars_held                            # second identical poll did NOT advance
+        await r._scan_once(c)                                       # first sighting -> baseline only
+        a = r.engine.positions.get("MINT")
+        await r._scan_once(c)                                       # the dip bar closed -> ENTER once
+        b = r.engine.positions.get("MINT")
+        bh_b = b.bars_held if b else None
+        await r._scan_once(c)                                       # re-poll, no new bar -> no re-step
+        d = r.engine.positions.get("MINT")
+        return a, b, bh_b, (d.bars_held if d else None)
+    a, b, bh_b, bh_d = asyncio.run(run())
+    assert a is None                                                # first sighting did NOT act on history
+    assert b is not None                                            # entered on the newly-closed dip bar
+    assert bh_b == bh_d                                             # re-poll did NOT double-step
 
 
 def test_run_discovery_smoke():
