@@ -119,8 +119,16 @@ gap is SPEED + paid smart-money/social data + human judgment, not a missing free
 
 1. Can bundle/coordinated-wallet detection be approximated from the free PumpPortal WS + public RPC, or
    does it need paid data? (The papers used richer bundle/fund-flow datasets.) — the BuyerIntel question.
-2. What's the false-positive cost of applying the ≥73% holder-decline trigger + the 17–19pp early-buyer
-   concentration filter at ENTRY (the papers validated them on post-migration / ≥30-swap sub-populations)?
+2. ~~What's the false-positive cost of applying the concentration/bundle filters at ENTRY?~~ **ANSWERED
+   (WL15, negative).** We bought the Solana Tracker / Axiom risk data — `score`, `top10`, `bundlers`,
+   `dev`, `snipers`, `insiders` — and backfilled it onto our 191 realized mints (`st_separation`). Even
+   though the backfill is CURRENT-not-entry-time (look-ahead that should INFLATE separation), **every
+   signal lands at AUC ~0.39–0.57, none ≥0.60** — i.e. the pro Axiom filters do NOT separate winners from
+   rugs on our cohort. Why: (a) our book is already gate-filtered, so these add no separation WITHIN it;
+   (b) our losses are mostly FADES (never-pump bleed), not rugs, and concentration/bundle signals are
+   RUG tells; (c) the structural wall (every free-data signal ≈ 0.5 on our set). ⇒ The WL14 veto stays
+   `rugged`-only (the clean, rare, explicit flag); no calibrated score/concentration veto is justified.
+   The Axiom edge for live traders is speed + human judgment + a pre-filter universe, NOT the filter values.
 3. Can the velocity-of-liquidity graduation predictor be repurposed as a rug-avoidance / sizing input?
 4. Per-round-trip fee + MEV/slippage drag decomposition (how much of net-negative is fees vs selection).
 
