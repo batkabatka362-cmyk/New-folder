@@ -44,7 +44,7 @@ def _eval_split(data: dict, decide, warmup: int, fee: float, clip: float, split:
     """Walk-forward: per token, fit/observe on bars[:cut] (TRAIN) and judge on bars[cut:] (TEST). Returns
     train/test geometric-mean multiples + how many tokens the strategy beat buy-and-hold in each slice.
     Costs (fee + slippage) are applied identically to the strategy and the hold baseline for a fair OOS test."""
-    tr_mults, te_mults, tr_beat, te_beat, n = [], [], 0, 0, 0
+    tr_mults, te_mults, tr_beat, te_beat, n, te_trades = [], [], 0, 0, 0, 0
     for _sym, bars in data.items():
         cut = int(len(bars) * split)
         tr, te = bars[:cut], bars[cut:]
@@ -54,13 +54,15 @@ def _eval_split(data: dict, decide, warmup: int, fee: float, clip: float, split:
         h_tr = _simulate(tr, buy_hold, fee, 0, clip, slippage_bps=slippage_bps)[0]
         h_te = _simulate(te, buy_hold, fee, 0, clip, slippage_bps=slippage_bps)[0]
         e_tr = _simulate(tr, decide, fee, warmup, clip, slippage_bps=slippage_bps)[0]
-        e_te = _simulate(te, decide, fee, warmup, clip, slippage_bps=slippage_bps)[0]
+        sim_te = _simulate(te, decide, fee, warmup, clip, slippage_bps=slippage_bps)
+        e_te = sim_te[0]
+        te_trades += sim_te[1]
         tr_mults.append(e_tr)
         te_mults.append(e_te)
         tr_beat += (e_tr > h_tr)
         te_beat += (e_te > h_te)
     return {"n": n, "train_gmean": _gmean(tr_mults), "test_gmean": _gmean(te_mults),
-            "train_beat": tr_beat, "test_beat": te_beat}
+            "train_beat": tr_beat, "test_beat": te_beat, "te_trades": te_trades}
 
 
 def _search_space():
@@ -75,18 +77,33 @@ def _search_space():
     return space
 
 
-def run_discovery(data: dict, fee: float, clip: float, split: float, slippage_bps: float = 0.0) -> list:
-    """Pure: search the space, walk-forward-validate each config, return rows sorted by OOS gmean as
-    [(test_gmean, name, metrics, passed)]. Shared by the CLI and the swing runner's autonomous loop.
-    PASS = beats hold >=70% OUT-of-sample AND profitable OOS AND consistent IN-sample (>=60%)."""
+def _passes_split(r: dict) -> bool:
+    return bool(r["n"]) and r["test_beat"] / r["n"] >= 0.70 and r["test_gmean"] > 1.0 \
+        and r["train_beat"] / r["n"] >= 0.60
+
+
+def run_discovery(data: dict, fee: float, clip: float, split: float, slippage_bps: float = 0.0,
+                  splits: list | None = None, min_trades: int = 15) -> list:
+    """Pure: search the space, walk-forward-validate each config across MULTIPLE splits, return rows
+    sorted by OOS gmean as [(test_gmean, name, metrics, passed)]. Shared by the CLI and the swing runner's
+    autonomous loop.
+
+    Multiple-testing / overfit control (WL20 rank-8): searching 12 configs and blessing one on a SINGLE
+    lucky split inflates false positives, so a config PASSES only if it clears the per-split gate (beat
+    hold >=70% OOS + profitable OOS + >=60% in-sample) on a MAJORITY of several splits AND traded enough
+    (>= min_trades OOS, so a 1-trade fluke like the refuted regime configs can't pass). Advisory only."""
+    splits = splits or sorted({0.5, 0.6, split, 0.8})
     rows = []
     for name, decide, warmup in _search_space():
-        r = _eval_split(data, decide, warmup, fee, clip, split, slippage_bps=slippage_bps)
-        if not r["n"]:
+        per = [_eval_split(data, decide, warmup, fee, clip, sp, slippage_bps=slippage_bps) for sp in splits]
+        mid = per[len(per) // 2]                       # representative split for display
+        if not mid["n"]:
             continue
-        passed = (r["test_beat"] / r["n"] >= 0.70 and r["test_gmean"] > 1.0
-                  and r["train_beat"] / r["n"] >= 0.60)
-        rows.append((r["test_gmean"], name, r, passed))
+        sp_pass = sum(1 for r in per if _passes_split(r))
+        enough = mid.get("te_trades", 0) >= min_trades
+        passed = enough and sp_pass >= (len(splits) + 1) // 2     # majority of splits + meaningful activity
+        mid = {**mid, "splits_passed": f"{sp_pass}/{len(splits)}", "n_tests": len(_search_space())}
+        rows.append((mid["test_gmean"], name, mid, passed))
     rows.sort(reverse=True, key=lambda x: x[0])
     return rows
 
@@ -110,17 +127,20 @@ def main() -> None:
         return
     print(f"=== STRATEGY DISCOVERY ({args.type}, fee {args.fee*100:.0f}%, clip {args.clip}, "
           f"train {args.split*100:.0f}% / test {(1-args.split)*100:.0f}%, {len(data)} tokens) ===")
-    print(f"  {'strategy':18} {'tr_gmean':>8} {'te_gmean':>8} {'tr>hold':>8} {'te>hold':>8}  verdict")
+    print(f"  {'strategy':18} {'te_gmean':>8} {'te>hold':>8} {'splits':>7} {'trades':>7}  verdict")
     rows = run_discovery(data, args.fee, args.clip, args.split, slippage_bps=args.slippage)
     n_pass = 0
     for _te_g, name, r, passed in rows:
         n_pass += passed
-        v = "PASS (OOS-robust)" if passed else "fail"
-        print(f"  {name:18} {r['train_gmean']:>8.2f} {r['test_gmean']:>8.2f} "
-              f"{r['train_beat']:>3}/{r['n']:<3}{'':1} {r['test_beat']:>3}/{r['n']:<3}  {v}")
-    print(f"\n  {n_pass}/{len(rows)} configs PASS the walk-forward gate (beat hold IN + OUT of sample, "
-          "profitable OOS).\n  PASS = a strategy the engine would (next step) paper-deploy + forward-test; "
-          "fail = killed as overfit / regime-luck. The held-out TEST is the honest judge.")
+        v = "PASS (multi-split)" if passed else "fail"
+        print(f"  {name:18} {r['test_gmean']:>8.2f} {r['test_beat']:>3}/{r['n']:<4} "
+              f"{r.get('splits_passed', '?'):>7} {r.get('te_trades', 0):>7}  {v}")
+    print(f"\n  {n_pass}/{len(rows)} configs PASS (majority of splits beat hold IN+OUT of sample, profitable "
+          f"OOS, >=15 OOS trades). Searched {rows[0][2].get('n_tests', len(rows)) if rows else 0} configs — the\n"
+          "  majority-of-splits + min-trades gate is the multiple-testing control so a single lucky split "
+          "can't crown a noise config.\n  NOTE the selectivity/significance tradeoff: deeper-dip configs "
+          "(k0.18+) have the highest gmean and are tail-safe but trade LESS (wider error bars); shallower "
+          "configs trade more. Advisory: a PASS earns paper-deploy + forward-test, never auto-live.")
 
 
 if __name__ == "__main__":
