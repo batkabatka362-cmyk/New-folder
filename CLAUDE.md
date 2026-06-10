@@ -12,6 +12,7 @@ memebot is a Solana pump.fun memecoin trading AI written in Python (asyncio). It
 python -m memebot                  # run the paper-trading bot (reads .env, MODE=paper)
 python -m memebot.supervisor       # AUTONOMY: keep the bot alive across crashes (auto-restart + backoff). Stop: Ctrl-C or a `memebot.stop` file. Add to Task Scheduler for run-on-boot.
 python -m memebot.swing            # WL18 SWING mode (SEPARATE paper system): mean-reversion on established liquid memecoins — the WL17 net-positive edge. Reads SWING_* + SOLANATRACKER_* from .env; own loop/book/swing_state.json; never touches the sniper. PAPER-ONLY.
+python -m memebot.swing.status     # WL18 swing forward-test book (reads swing_state.json, no network): equity / closed-trade win-rate / profit factor / open positions vs the WL17 backtest yardstick.
 python run_tests.py                # test suite — dependency-free runner; also works under `pytest`
 python demo.py                     # end-to-end demo: one token through the full pipeline (in-memory DB)
 python -m memebot.status           # status dashboard: equity / funnel / verdicts / lessons
