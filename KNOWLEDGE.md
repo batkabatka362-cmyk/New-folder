@@ -81,6 +81,30 @@ loss-MINIMISATION, not profit.** [2602.13480; Pine Analytics; BeInCrypto]
 - ❌ **A profit edge** — needs speed/MEV/advance-notice infra (the insider-sniper game) we do not have and
   cannot get on free data + paper-only.
 
+## 5b. Top-trader playbook (named KOLs — e.g. Cupsey, ~$20-25M) — what the best actually DO
+
+These are the repeatable PRINCIPLES top discretionary memecoin traders use (the named-trader specifics
+are mostly private; the methods below are consistently reported across them + the practitioner guides).
+Crucially, **they CONFIRM what the bot already does** — there is no secret signal, just discipline + speed
++ human judgment:
+- **Early entry, disciplined exit BEFORE the hype peaks** — "a booked move beats a round-trip." ⇒ our
+  take-initial (WL7) + partial (WL2) + breakeven-trail.
+- **The 50/50 rule** — sell ~50% at the target, let ~50% ride as house money. ⇒ our `partial_tp_frac` 0.7
+  + take-initial principal-recovery is the same shape (bank most early, free-roll the rest).
+- **Small per-coin size** — 1-5% of bankroll per trade. ⇒ our `risk_per_trade_frac` 4% + per-trade caps.
+- **Smart-money wallet tracking** — follow proven-PnL wallets; ≥5 smart wallets into the same token = a
+  lean; the first ~70 buyers + snipers "predict the pump"; **top-10 holders < 40% = healthy.** ⇒ our
+  BuyerIntel (free-data approximation) + concentration veto. Tools they use: GMGN, kolscan.io/leaderboard,
+  BullX, BonkBot, Photon — these surface smart-money/insider wallets (data we'd need their API/tape for).
+- **Exit when smart money STOPS buying or sends tokens to an exchange** (distribution prep). ⇒ our
+  sell-pressure / concentration-rise de-risk is the free-data analogue.
+- **Social/narrative monitoring** — Twitter/Reddit/TG velocity for tokens gaining traction. ⇒ the one
+  modality we lack on free data (needs a paid X API; social PRESENCE alone is universal/no-signal).
+- **What we structurally CANNOT match:** their SPEED (BullX/sniper bots, millisecond fills) and same-block
+  insider advantage. That speed/MEV edge — not a better filter — is what separates the profitable few.
+⇒ Net: the top-trader playbook validates our exits + sizing + smart-money + banded-filter direction. The
+gap is SPEED + paid smart-money/social data + human judgment, not a missing free-data signal.
+
 ## 6. FOLKLORE / REFUTED — do NOT use these (failed adversarial verification)
 
 - ✗ **"76% rug rate" (76,469/100,063)** — failed verification (1-2). The defensible figure is the
