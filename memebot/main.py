@@ -41,6 +41,7 @@ from .feed.dexscreener import DexScreenerClient
 from .feed.helius_rpc import HeliusRPC, largest_funder_cluster
 from .feed.jupiter import JupiterClient
 from .feed.rugcheck import RugCheckClient
+from .feed.solanatracker import SolanaTrackerClient
 from .agent.vision import ImageScamScorer
 from .feed.pumpportal_ws import PumpPortalFeed
 from .feed.watchlist import WatchlistManager
@@ -90,6 +91,10 @@ class Bot:
         self.jupiter = JupiterClient(settings.jupiter_base_url) if settings.honeypot_check_enabled else None
         # B1: RugCheck.xyz risk cross-check (free, no key); None = disabled.
         self.rugcheck = RugCheckClient(settings.rugcheck_base_url) if settings.rugcheck_enabled else None
+        # WL14: Solana Tracker risk/holder data (Axiom-style bundle/sniper/insider/top-10 + risk score).
+        # None unless enabled AND a key is set (free tier needs an x-api-key); cost-gated to buys.
+        self.solanatracker = (SolanaTrackerClient(settings.solanatracker_api_key, settings.solanatracker_base_url)
+                              if settings.solanatracker_enabled and settings.solanatracker_api_key else None)
         # WL6: vision IMAGE scam-scorer (the user's visual edge). LOG-only; None = disabled. Reuses the
         # Ollama host by default (local llava = free) or a configured cloud vision base URL.
         self.image_scorer = ImageScamScorer(
@@ -718,6 +723,25 @@ class Bot:
                 log.warning("RUGCHECK veto %s: %s — skipping buy", c.symbol or c.mint[:6], top)
                 self.alerter.send(f"🛑 RUGCHECK *{c.symbol or c.mint[:6]}* danger ({top}) — buy vetoed")
                 return
+        # WL14: Solana Tracker risk/holder cross-check — the Axiom-style bundle/sniper/insider/top-10 +
+        # 1-10 risk score we can't compute on free data (the literature's #1 rug tell). Cost-gated to this
+        # buy candidate; logs the signals onto the entry features (dataset-only) AND vetoes on a rugged/
+        # danger verdict (or score >= max). No-op on any failure (an external service never blocks a buy
+        # on its own outage).
+        if self.solanatracker is not None:
+            st = await self.solanatracker.risk(c.mint)
+            if st:
+                for k, fk in (("score", "st_risk_score"), ("top10", "st_top10"),
+                              ("snipers_pct", "st_snipers_pct"), ("insiders_pct", "st_insiders_pct")):
+                    if st.get(k) is not None:
+                        c.features[fk] = st[k]
+                veto = (self.s.solanatracker_veto_on_danger and (st.get("rugged") or st.get("danger"))) or \
+                       (self.s.solanatracker_max_risk_score > 0 and (st.get("score") or 0) >= self.s.solanatracker_max_risk_score)
+                if veto:
+                    why = ("rugged" if st.get("rugged") else (", ".join(st.get("risks", [])[:3]) or f"risk={st.get('score')}"))
+                    log.warning("SOLANATRACKER veto %s: %s — skipping buy", c.symbol or c.mint[:6], why)
+                    self.alerter.send(f"🛑 SOLANATRACKER *{c.symbol or c.mint[:6]}* ({why}) — buy vetoed")
+                    return
         fill = await self.executor.buy(c.mint, size)
         if not fill.ok:
             log.debug("buy rejected %s: %s", c.symbol, fill.reason)
@@ -747,9 +771,11 @@ class Bot:
                 iss = await self.image_scorer.score(c.mint, uri=_st.uri, image_url=img_url)
                 if iss is not None:
                     entry_feats["image_scam_score"] = iss
-        # WL9: carry the smart-money confluence counts onto the trade's entry features (dataset-only keys)
-        # so the signal is validated against THIS trade's realized outcome (image_separation-style).
-        for k in ("smart_buyer_count", "dumper_buyer_count", "early_buyers"):
+        # WL9/WL14: carry the smart-money confluence counts + the Solana Tracker risk signals onto the
+        # trade's entry features (dataset-only keys) so each is validated against THIS trade's realized
+        # outcome (image_separation / signal_separation style).
+        for k in ("smart_buyer_count", "dumper_buyer_count", "early_buyers",
+                  "st_risk_score", "st_top10", "st_snipers_pct", "st_insiders_pct"):
             if k in c.features:
                 entry_feats[k] = c.features[k]
         if not self.portfolio.apply_buy(
@@ -1517,6 +1543,8 @@ class Bot:
                 self.jupiter = await stack.enter_async_context(self.jupiter)   # A2 honeypot quote client
             if self.rugcheck is not None:
                 self.rugcheck = await stack.enter_async_context(self.rugcheck)  # B1 RugCheck cross-check
+            if self.solanatracker is not None:
+                self.solanatracker = await stack.enter_async_context(self.solanatracker)  # WL14 risk data
             if self.image_scorer is not None:
                 self.image_scorer = await stack.enter_async_context(self.image_scorer)  # WL6 vision scam-scorer
             if self.helius is not None:

@@ -27,6 +27,10 @@ _SIGNALS = (
     ("early_buyers", False),        # broader early breadth -> mild winner lean (organic vs sniped)
     ("name_reuse_count", True),     # branding reuse -> scam-factory (found NOT to separate on the traded set)
     ("entry_latency_s", True),      # slower entry -> chasing (found NOT robust)
+    ("st_risk_score", True),        # WL14 Solana Tracker 1-10 risk score (higher = riskier)
+    ("st_top10", True),             # WL14 top-10 holder concentration % (higher = worse)
+    ("st_snipers_pct", True),       # WL14 sniper share % (higher = worse)
+    ("st_insiders_pct", True),      # WL14 insider share % (higher = worse)
 )
 
 

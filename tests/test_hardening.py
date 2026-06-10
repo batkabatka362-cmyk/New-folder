@@ -796,6 +796,38 @@ def test_rugcheck_report_parse():
     assert p({"risks": "bad"})["danger"] is False        # tolerant of schema drift
 
 
+def test_solanatracker_risk_parse():
+    """WL14: defensive parse of Solana Tracker /tokens risk -> rugged/score/top10/snipers/insiders +
+    danger; + risk() over a fake client; degrades to None on no key / junk (never a false veto)."""
+    import asyncio
+    from memebot.feed.solanatracker import SolanaTrackerClient, _pct
+    assert _pct(42.5) == 42.5 and _pct({"totalPercentage": 30.0}) == 30.0 and _pct({"count": 5}) == 5.0
+    assert _pct("x") is None and _pct(None) is None
+    data = {"risk": {"rugged": False, "score": 8, "top10": 45.0,
+                     "snipers": {"totalPercentage": 22.0}, "insiders": {"count": 3},
+                     "risks": [{"name": "high_concentration", "level": "danger"},
+                               {"name": "low_liquidity", "level": "warn"}]}}
+    r = SolanaTrackerClient._parse(data)
+    assert r["rugged"] is False and r["score"] == 8.0 and r["top10"] == 45.0
+    assert r["snipers_pct"] == 22.0 and r["insiders_pct"] == 3.0
+    assert r["danger"] is True and r["risks"] == ["high_concentration", "low_liquidity"]   # danger-level risk
+    assert SolanaTrackerClient._parse({"risk": {"rugged": True}})["danger"] is True          # rugged alone = danger
+    assert SolanaTrackerClient._parse({"token": {}}) is None and SolanaTrackerClient._parse("x") is None
+
+    async def run():
+        c = SolanaTrackerClient("key")
+        class FakeResp:
+            status_code = 200
+            def json(self_): return data
+        class FakeClient:
+            async def get(self_, url): return FakeResp()
+        c._client = FakeClient()
+        return await c.risk("MINT")
+    got = asyncio.run(run())
+    assert got["danger"] is True and got["score"] == 8.0
+    assert asyncio.run(SolanaTrackerClient("").risk("MINT")) is None    # no api key -> None, no call
+
+
 # ── spec-S7: gate rug-dodge attribution ───────────────────────────────────────
 def test_gate_attribution_confusion_matrix():
     """spec-S7: the gate's rug-avoidance confusion matrix + per-reason dodge/false-reject."""
