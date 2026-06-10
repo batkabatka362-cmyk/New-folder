@@ -12,9 +12,11 @@ import asyncio
 import json
 import os
 import time
+from contextlib import AsyncExitStack
 
 from ..backtest.swing_discover import run_discovery
 from ..backtest.swing_lab import load_bars
+from ..feed.geckoterminal import GeckoTerminalClient
 from ..feed.solanatracker import SolanaTrackerClient
 from ..utils.logging import get_logger
 from .engine import SwingClosed, SwingEngine, SwingParams, SwingPosition
@@ -107,7 +109,7 @@ class SwingRunner:
                     else:
                         log.info("swing EXIT  %s @ %.6g -> PnL %+.3f SOL (%+.1f%%) [%s]",
                                  sym, obj.exit_price, obj.pnl_sol, obj.pnl_pct * 100, obj.reason)
-            await asyncio.sleep(0.35)        # rate-limit courtesy
+            await asyncio.sleep(self.s.swing_poll_sleep_s)   # space calls under the OHLCV source's rate limit
         eq = self.engine.equity(price_map)
         st = self.engine.stats()
         log.info("swing book | equity %.3f SOL (start %.1f) | open %d | closed %d win%% %.0f pf %.2f realized %+.3f",
@@ -115,7 +117,7 @@ class SwingRunner:
                  st["profit_factor"], st["realized_sol"])
         self._save()
 
-    async def _discover(self, client) -> None:
+    async def _discover(self) -> None:
         """WL19 autonomous self-research: re-run the walk-forward strategy discovery, record the
         OOS-validated strategies to swing_strategies.json, and LOG the best vs the live config. ADVISORY
         only — it never auto-changes live params (same safe-gate discipline as the GBM retrain). Heavy +
@@ -143,23 +145,33 @@ class SwingRunner:
             log.info("swing discovery | 0/%d strategies passed the walk-forward gate this run", len(rows))
 
     async def run(self) -> None:
-        if not (self.s.solanatracker_enabled and self.s.solanatracker_api_key):
-            log.error("swing mode needs SOLANATRACKER_ENABLED + a key (it sources OHLCV from /chart).")
+        use_gt = self.s.swing_ohlcv_source == "geckoterminal"
+        st_ok = self.s.solanatracker_enabled and bool(self.s.solanatracker_api_key)
+        if not use_gt and not st_ok:
+            log.error("swing needs an OHLCV source: SWING_OHLCV_SOURCE=geckoterminal (keyless) or a Solana Tracker key.")
             return
         self._load()
-        async with SolanaTrackerClient(self.s.solanatracker_api_key, self.s.solanatracker_base_url) as client:
-            self.universe = await liquid_universe(client, min_liquidity_usd=self.s.swing_min_liquidity_usd)
-            log.info("swing mode LIVE (paper) | %d tokens | %s bars | SMA%d dip%.0f%% | size %.2f SOL | scan %.0fs",
-                     len(self.universe), self.s.swing_interval, self.p.window, self.p.dip_k * 100,
-                     self.p.size_sol, self.s.swing_scan_interval_s)
+        async with AsyncExitStack() as stack:
+            # Solana Tracker (if a key exists) does the low-frequency universe-liquidity check + the weekly
+            # discovery; GeckoTerminal (keyless) serves the HIGH-frequency per-scan OHLCV so the ST free tier
+            # isn't blown. Either alone is enough to run.
+            st = None
+            if st_ok:
+                st = await stack.enter_async_context(
+                    SolanaTrackerClient(self.s.solanatracker_api_key, self.s.solanatracker_base_url))
+            chart_client = await stack.enter_async_context(GeckoTerminalClient()) if use_gt else st
+            self.universe = await liquid_universe(st, min_liquidity_usd=self.s.swing_min_liquidity_usd)
+            log.info("swing mode LIVE (paper) | %d tokens | %s bars | OHLCV=%s | SMA%d dip%.0f%% | size %.2f SOL | scan %.0fs",
+                     len(self.universe), self.s.swing_interval, self.s.swing_ohlcv_source, self.p.window,
+                     self.p.dip_k * 100, self.p.size_sol, self.s.swing_scan_interval_s)
             while True:
                 try:
-                    await self._scan_once(client)
+                    await self._scan_once(chart_client)
                     if self.s.swing_discover_enabled and self.s.swing_discover_interval_s > 0:
                         now = time.time()
                         if now - self._last_discover >= self.s.swing_discover_interval_s:
                             self._last_discover = now
-                            await self._discover(client)   # autonomous self-research (advisory)
+                            await self._discover()         # autonomous self-research (advisory; ST-sourced)
                 except Exception as e:  # noqa: BLE001 — a scan/discovery failure must not kill the forward test
                     log.warning("swing loop error: %s", type(e).__name__)
                 await asyncio.sleep(self.s.swing_scan_interval_s)

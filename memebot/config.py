@@ -392,6 +392,11 @@ class Settings:
     swing_rolling_loss_halt_sol: float = 3.0    # halt NEW entries once realized loss over the window <= -this (0=off)
     swing_loss_halt_lookback: int = 20          # how many recent closed trades the rolling-loss halt sums
     swing_min_liquidity_usd: float = 50_000.0   # universe prune floor: drop a token below this pool liquidity
+    # WL23: OHLCV source for the high-frequency live polling. 'geckoterminal' = keyless + ~30 calls/min
+    # (the Solana Tracker free tier's ~2,500/mo is blown in days by per-scan polling). 'solanatracker' to
+    # force the ST /chart instead. swing_poll_sleep_s spaces per-token calls under the GeckoTerminal limit.
+    swing_ohlcv_source: str = "geckoterminal"   # geckoterminal | solanatracker
+    swing_poll_sleep_s: float = 2.1             # sleep between per-token OHLCV calls (>= 2s keeps GT under 30/min)
     # GO-LIVE GATE (advisory — `python -m memebot.readiness`): the explicit, auditable criteria that must
     # ALL hold on the HONEST (CLEAN, glitch-excluded) realized book before real money is even considered.
     # A single lucky AUC can't satisfy this; it's the durable-PnL gate. NEVER auto-flips live mode.
@@ -701,6 +706,8 @@ class Settings:
             swing_rolling_loss_halt_sol=_float("SWING_ROLLING_LOSS_HALT_SOL", 3.0),
             swing_loss_halt_lookback=_int("SWING_LOSS_HALT_LOOKBACK", 20),
             swing_min_liquidity_usd=_float("SWING_MIN_LIQUIDITY_USD", 50_000.0),
+            swing_ohlcv_source=_str("SWING_OHLCV_SOURCE", "geckoterminal"),
+            swing_poll_sleep_s=_float("SWING_POLL_SLEEP_S", 2.1),
             go_live_min_trades=_int("GO_LIVE_MIN_TRADES", 100),
             go_live_min_profit_factor=_float("GO_LIVE_MIN_PROFIT_FACTOR", 1.3),
             gbm_shadow_model_path=_str("GBM_SHADOW_MODEL_PATH", ""),

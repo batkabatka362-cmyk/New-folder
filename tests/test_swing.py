@@ -133,6 +133,32 @@ def test_runner_first_sighting_then_steps_once():
     assert bh_b == bh_d                                             # re-poll did NOT double-step
 
 
+def test_geckoterminal_chart_parse():
+    """WL23: GeckoTerminal ohlcv_list ([ts,o,h,l,c,v], newest-first) -> the engine's ascending dict bars."""
+    import asyncio
+    from memebot.feed.geckoterminal import GeckoTerminalClient
+    c = GeckoTerminalClient()
+    c._pool = {"MINT": "POOL"}                                      # pre-cache the pool so chart skips pool_for
+    payload = {"data": {"attributes": {"ohlcv_list": [
+        [200, 2.0, 2.1, 1.9, 2.05, 100.0],                         # GeckoTerminal returns newest-first
+        [100, 1.0, 1.1, 0.9, 1.05, 50.0],
+    ]}}}
+
+    class FakeResp:
+        status_code = 200
+        def json(self_):
+            return payload
+
+    class FakeClient:
+        async def get(self_, url, params=None):
+            return FakeResp()
+    c._client = FakeClient()
+    bars = asyncio.run(c.chart("MINT", "4h"))
+    assert len(bars) == 2
+    assert bars[0]["time"] == 100 and bars[-1]["time"] == 200       # sorted ASCENDING (latest last)
+    assert bars[-1]["close"] == 2.05 and bars[0]["close"] == 1.05
+
+
 def test_run_discovery_smoke():
     """WL19: the discovery engine searches + walk-forward-validates and returns ranked rows. Synthetic
     oscillating prices (mean-reversion has signal) -> at least one config runs + the row shape holds."""
