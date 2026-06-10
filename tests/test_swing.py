@@ -54,3 +54,18 @@ def test_engine_time_stop():
     eng.step("A", "A", [100, 98], 2.0)                              # bars_held 1
     out = eng.step("A", "A", [100, 98], 3.0)                        # bars_held 2 -> time stop
     assert out and out[0] == "exit" and out[1].reason == "time_stop"
+
+
+def test_run_discovery_smoke():
+    """WL19: the discovery engine searches + walk-forward-validates and returns ranked rows. Synthetic
+    oscillating prices (mean-reversion has signal) -> at least one config runs + the row shape holds."""
+    import math
+    from memebot.backtest.swing_discover import run_discovery
+    def bars(phase):
+        return [{"close": 100 + 20 * math.sin(i / 5 + phase), "high": 121, "low": 79, "time": i * 3600}
+                for i in range(260)]
+    data = {"A": bars(0.0), "B": bars(1.0)}
+    rows = run_discovery(data, fee=0.01, clip=3.0, split=0.7)
+    assert isinstance(rows, list) and rows
+    g, name, r, passed = rows[0]
+    assert isinstance(name, str) and {"n", "train_gmean", "test_gmean"} <= set(r) and isinstance(passed, bool)

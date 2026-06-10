@@ -34,6 +34,8 @@ gbm_model.txt.*
 swing_cache.json
 # WL18 swing forward-test paper state (regenerates as it runs)
 swing_state.json
+# WL19 autonomous-discovery validated-strategy registry (regenerates weekly)
+swing_strategies.json
 # supervisor diagnostic capture
 sup_diag*.log
 swing*.log

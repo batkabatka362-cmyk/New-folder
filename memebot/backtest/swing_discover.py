@@ -73,6 +73,22 @@ def _search_space():
     return space
 
 
+def run_discovery(data: dict, fee: float, clip: float, split: float) -> list:
+    """Pure: search the space, walk-forward-validate each config, return rows sorted by OOS gmean as
+    [(test_gmean, name, metrics, passed)]. Shared by the CLI and the swing runner's autonomous loop.
+    PASS = beats hold >=70% OUT-of-sample AND profitable OOS AND consistent IN-sample (>=60%)."""
+    rows = []
+    for name, decide, warmup in _search_space():
+        r = _eval_split(data, decide, warmup, fee, clip, split)
+        if not r["n"]:
+            continue
+        passed = (r["test_beat"] / r["n"] >= 0.70 and r["test_gmean"] > 1.0
+                  and r["train_beat"] / r["n"] >= 0.60)
+        rows.append((r["test_gmean"], name, r, passed))
+    rows.sort(reverse=True, key=lambda x: x[0])
+    return rows
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Discover + out-of-sample-validate swing strategies.")
     ap.add_argument("--fee", type=float, default=0.02)
@@ -92,20 +108,9 @@ def main() -> None:
     print(f"=== STRATEGY DISCOVERY ({args.type}, fee {args.fee*100:.0f}%, clip {args.clip}, "
           f"train {args.split*100:.0f}% / test {(1-args.split)*100:.0f}%, {len(data)} tokens) ===")
     print(f"  {'strategy':18} {'tr_gmean':>8} {'te_gmean':>8} {'tr>hold':>8} {'te>hold':>8}  verdict")
-    rows = []
-    for name, decide, warmup in _search_space():
-        r = _eval_split(data, decide, warmup, args.fee, args.clip, args.split)
-        if not r["n"]:
-            continue
-        # PASS = beats hold on >=70% out-of-sample AND is absolutely profitable OOS AND was consistent
-        # in-sample (>=60%). The OOS gate is what kills overfit/regime-luck configs.
-        oos = r["test_beat"] / r["n"]
-        ins = r["train_beat"] / r["n"]
-        passed = oos >= 0.70 and r["test_gmean"] > 1.0 and ins >= 0.60
-        rows.append((r["test_gmean"], name, r, passed))
-    rows.sort(reverse=True, key=lambda x: x[0])
+    rows = run_discovery(data, args.fee, args.clip, args.split)
     n_pass = 0
-    for te_g, name, r, passed in rows:
+    for _te_g, name, r, passed in rows:
         n_pass += passed
         v = "PASS (OOS-robust)" if passed else "fail"
         print(f"  {name:18} {r['train_gmean']:>8.2f} {r['test_gmean']:>8.2f} "

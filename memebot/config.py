@@ -367,6 +367,12 @@ class Settings:
     swing_max_hold_bars: int = 0              # 0 = no time stop; else force-exit after N bars (regime guard)
     swing_interval: str = "4h"                # candle interval for the signal (Solana Tracker /chart type)
     swing_scan_interval_s: float = 1800.0     # how often the runner polls the universe (30 min)
+    # WL19 autonomous strategy discovery: the swing runner periodically re-runs the walk-forward
+    # discovery + validation and records the OOS-robust strategies to swing_strategies.json (ADVISORY —
+    # it logs the best validated config + whether it beats the live one; it never auto-changes live params,
+    # matching the safe-gate discipline). The self-research seed of the AGI direction.
+    swing_discover_enabled: bool = True
+    swing_discover_interval_s: float = 604800.0   # weekly; 0 disables
     # GO-LIVE GATE (advisory — `python -m memebot.readiness`): the explicit, auditable criteria that must
     # ALL hold on the HONEST (CLEAN, glitch-excluded) realized book before real money is even considered.
     # A single lucky AUC can't satisfy this; it's the durable-PnL gate. NEVER auto-flips live mode.
@@ -666,6 +672,8 @@ class Settings:
             swing_max_hold_bars=_int("SWING_MAX_HOLD_BARS", 0),
             swing_interval=_str("SWING_INTERVAL", "4h"),
             swing_scan_interval_s=_float("SWING_SCAN_INTERVAL_S", 1800.0),
+            swing_discover_enabled=_bool("SWING_DISCOVER_ENABLED", True),
+            swing_discover_interval_s=_float("SWING_DISCOVER_INTERVAL_S", 604800.0),
             go_live_min_trades=_int("GO_LIVE_MIN_TRADES", 100),
             go_live_min_profit_factor=_float("GO_LIVE_MIN_PROFIT_FACTOR", 1.3),
             gbm_shadow_model_path=_str("GBM_SHADOW_MODEL_PATH", ""),

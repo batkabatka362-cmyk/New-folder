@@ -11,7 +11,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 
+from ..backtest.swing_discover import run_discovery
+from ..backtest.swing_lab import load_bars
 from ..feed.solanatracker import SolanaTrackerClient
 from ..utils.logging import get_logger
 from .engine import SwingClosed, SwingEngine, SwingParams, SwingPosition
@@ -32,6 +35,7 @@ class SwingRunner:
         self.engine = SwingEngine(self.p, initial_sol=settings.swing_initial_sol)
         self.universe: dict[str, str] = {}
         self._last_bar: dict[str, float] = {}      # mint -> last bar time stepped (per-candle bookkeeping)
+        self._last_discover = 0.0                  # last autonomous strategy-discovery run (epoch s)
 
     # ---- state persistence (so the forward test survives restarts) -----------------------------------
     def _save(self) -> None:
@@ -90,6 +94,32 @@ class SwingRunner:
                  st["profit_factor"], st["realized_sol"])
         self._save()
 
+    async def _discover(self, client) -> None:
+        """WL19 autonomous self-research: re-run the walk-forward strategy discovery, record the
+        OOS-validated strategies to swing_strategies.json, and LOG the best vs the live config. ADVISORY
+        only — it never auto-changes live params (same safe-gate discipline as the GBM retrain). Heavy +
+        off the hot path; a failure must never kill the forward test."""
+        data = await load_bars(self.s, self.s.swing_interval)
+        data = {k: v for k, v in data.items() if v and len(v) > 100}
+        if not data:
+            return
+        rows = await asyncio.to_thread(run_discovery, data, max(self.s.swing_fee_pct, 0.02), 2.0, 0.7)
+        passed = [(g, name, r) for g, name, r, p in rows if p]
+        try:
+            json.dump({"validated": [{"name": n, "test_gmean": round(g, 3),
+                                      "train_gmean": round(r["train_gmean"], 3),
+                                      "oos_beat": f"{r['test_beat']}/{r['n']}"} for g, n, r in passed]},
+                      open("swing_strategies.json", "w"))
+        except OSError:
+            pass
+        if passed:
+            g, name, _ = passed[0]
+            log.info("swing discovery | %d/%d strategies OOS-validated | best: %s (test_gmean %.2f) "
+                     "| live: SMA%d dip%.0f%% (advisory — live params unchanged)",
+                     len(passed), len(rows), name, g, self.s.swing_window, self.s.swing_dip_k * 100)
+        else:
+            log.info("swing discovery | 0/%d strategies passed the walk-forward gate this run", len(rows))
+
     async def run(self) -> None:
         if not (self.s.solanatracker_enabled and self.s.solanatracker_api_key):
             log.error("swing mode needs SOLANATRACKER_ENABLED + a key (it sources OHLCV from /chart).")
@@ -103,6 +133,11 @@ class SwingRunner:
             while True:
                 try:
                     await self._scan_once(client)
-                except Exception as e:  # noqa: BLE001 — a scan failure must not kill the forward test
-                    log.warning("swing scan error: %s", type(e).__name__)
+                    if self.s.swing_discover_enabled and self.s.swing_discover_interval_s > 0:
+                        now = time.time()
+                        if now - self._last_discover >= self.s.swing_discover_interval_s:
+                            self._last_discover = now
+                            await self._discover(client)   # autonomous self-research (advisory)
+                except Exception as e:  # noqa: BLE001 — a scan/discovery failure must not kill the forward test
+                    log.warning("swing loop error: %s", type(e).__name__)
                 await asyncio.sleep(self.s.swing_scan_interval_s)
