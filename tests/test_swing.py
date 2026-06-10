@@ -237,3 +237,27 @@ def test_engine_simulate_cost_parity():
     _eq, _nt, _nw, trade_rets = _simulate(bars, mean_rev(W, K), FEE, W, clip=3.0, slippage_bps=SLIP)
     assert len(trade_rets) == 1
     assert abs(eng.closed[0].pnl_pct - trade_rets[0]) < 1e-9        # full parity: same prices + same per-side cost
+
+
+def test_runner_multibar_gap_replay():
+    """WL22 EXCELLENCE: a poll GAP (downtime) where SEVERAL bars closed at once must REPLAY each closed bar
+    so bars_held counts BARS not polls (a time-stop/decision is never lost). 3 new closed bars -> 3 steps."""
+    import asyncio
+    from memebot.swing.runner import SwingRunner
+    from memebot.swing.engine import SwingPosition
+    from memebot.config import Settings
+    r = SwingRunner(Settings.load())
+    r._save = lambda: None
+    r.universe = {"SYM": "MINT"}
+    r.engine.positions["MINT"] = SwingPosition("MINT", "SYM", 1.0, 100.0, 0.0, 1.0, 0.18, 0)  # held, bars_held 0
+    r._last_bar["MINT"] = 2000.0                                     # we last stepped the bar at t=2000
+    # closed bars at t=1000..5000 (3000/4000/5000 are NEW) + a forming bar at 6000; flat price -> stays held
+    bars = [{"close": 95.0, "high": 96, "low": 94, "time": t} for t in (1000, 2000, 3000, 4000, 5000, 6000)]
+
+    class FakeClient:
+        base_url = ""
+        async def chart(self_, mint, interval):
+            return bars
+    asyncio.run(r._scan_once(FakeClient()))
+    held = r.engine.positions.get("MINT")
+    assert held is not None and held.bars_held == 3                 # replayed exactly the 3 new closed bars
