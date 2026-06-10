@@ -168,6 +168,7 @@ def main() -> None:
     ap.add_argument("--fee", type=float, default=0.01, help="round-trip fee (liquid-pair realistic ~0.7-1.5%)")
     ap.add_argument("--type", default="1h", help="candle interval (1h/4h/1d)")
     ap.add_argument("--clip", type=float, default=3.0, help="per-bar glitch clip (a real bar rarely exceeds this x); tighten to stress-test")
+    ap.add_argument("--sweep", action="store_true", help="param-robustness sweep of mean-reversion (window x k) — overfit check")
     args = ap.parse_args()
     s = get_settings()
     if not (s.solanatracker_enabled and s.solanatracker_api_key):
@@ -177,6 +178,27 @@ def main() -> None:
     data = {k: v for k, v in data.items() if v and len(v) > 100}
     if not data:
         print("no chart data.")
+        return
+    if args.sweep:
+        # Overfit check: is the mean-reversion edge robust across params, or lucky at window=24/k=0.12?
+        print(f"=== MEAN-REVERSION PARAM SWEEP ({args.type}, fee {args.fee*100:.1f}%, clip {args.clip}, "
+              f"{len(data)} tokens) ===")
+        print(f"  {'window':>7} {'k':>6} {'gmean_x':>8} {'>hold':>6} {'win%':>5}")
+        hold = {sym: _simulate(bars, buy_hold, args.fee, 0, clip=args.clip)[0] for sym, bars in data.items()}
+        for window in (12, 24, 48):
+            for k in (0.08, 0.12, 0.20):
+                mults, beat, tr, wn = [], 0, 0, 0
+                for sym, bars in data.items():
+                    eq, nt, nw, _ = _simulate(bars, mean_rev(window, k), args.fee, window, clip=args.clip)
+                    mults.append(eq)
+                    tr += nt
+                    wn += nw
+                    if eq > hold[sym]:
+                        beat += 1
+                wr = (wn / tr * 100) if tr else 0.0
+                print(f"  {window:>7} {k:>6.2f} {_gmean(mults):>8.2f} {beat:>3}/{len(data):<2} {wr:>5.0f}")
+        print("\n  Robust if MOST cells are >1.0 gmean AND beat hold on most tokens. If only window=24/k=0.12\n"
+              "  works, it's overfit. (The SIGN robustness is what matters, not the magnitude.)")
         return
     strategies = {
         "buy_hold": (buy_hold, 0),
