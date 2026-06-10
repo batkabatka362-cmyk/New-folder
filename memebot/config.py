@@ -590,6 +590,21 @@ class Settings:
                      "OLLAMA_CONFIRM_MODEL to a deeper model (e.g. qwen3:8b) or leave it empty")
         if self.is_live:
             w.append("MODE=live is not implemented (Phase 5) — paper only")
+        # WL18-23 swing-mode invariants
+        if self.swing_window < 1:
+            w.append("swing_window must be >= 1 (the SMA needs a window)")
+        if not 0.0 < self.swing_dip_k < 1.0:
+            w.append(f"swing_dip_k {self.swing_dip_k} should be in (0,1) — the dip depth below the SMA to enter")
+        if self.swing_stop_k > 0 and self.swing_stop_k < self.swing_dip_k:
+            w.append(f"swing_stop_k ({self.swing_stop_k}) < swing_dip_k ({self.swing_dip_k}) is degenerate "
+                     "(a stop tighter than the entry dip stops out instantly; the backtest also showed stops HURT mean-rev)")
+        if self.swing_max_positions < 1 or self.swing_size_sol <= 0:
+            w.append("swing_max_positions must be >= 1 and swing_size_sol > 0")
+        if self.swing_rolling_loss_halt_sol > 0 and self.swing_loss_halt_lookback < 1:
+            w.append("swing_loss_halt_lookback must be >= 1 when swing_rolling_loss_halt_sol > 0 "
+                     "(lookback<=0 would sum the ENTIRE closed book)")
+        if self.swing_ohlcv_source not in ("geckoterminal", "solanatracker"):
+            w.append(f"swing_ohlcv_source '{self.swing_ohlcv_source}' must be 'geckoterminal' or 'solanatracker'")
         return w
 
     @classmethod

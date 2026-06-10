@@ -39,3 +39,4 @@ swing_strategies.json
 # supervisor diagnostic capture
 sup_diag*.log
 swing*.log
+*.lock

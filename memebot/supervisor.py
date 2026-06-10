@@ -54,9 +54,11 @@ def run(argv: list | None = None) -> int:
     ap.add_argument("--max-backoff", type=float, default=300.0, help="cap on the exponential backoff (s)")
     ap.add_argument("--max-fast-crashes", type=int, default=8, help="give up after this many back-to-back fast crashes (0=never)")
     ap.add_argument("--stop-file", default="memebot.stop", help="graceful-stop sentinel: present -> exit between restarts")
+    ap.add_argument("--target", default="memebot",
+                    help="module to keep alive: 'memebot' (sniper, default) or 'memebot.swing' (the swing forward-test)")
     args = ap.parse_args(argv)
 
-    cmd = [sys.executable, "-u", "-m", "memebot"]
+    cmd = [sys.executable, "-u", "-m", args.target]
     backoff = args.base_backoff
     fast_crashes = 0
     starts = 0
