@@ -23,8 +23,26 @@ try:
     # Anchoring to this file's location (repo/memebot/config.py -> repo/.env) makes it cwd-independent.
     _ENV = _Path(__file__).resolve().parent.parent / ".env"
     load_dotenv(_ENV if _ENV.exists() else None)
-except ImportError:  # dotenv is optional at runtime
-    pass
+except ImportError:  # python-dotenv not installed -> MANUAL .env parse, never silently skip config.
+    # The runtime interpreter (e.g. the bot's Python311) may lack python-dotenv; if we just `pass`, the
+    # ENTIRE .env (Helius key, the banded funnel, SolanaTracker, buyer-intel, swing knobs) is silently
+    # ignored and every feature runs at its OFF default. So fall back to a minimal hand parser. Uses
+    # setdefault (= load_dotenv's no-override default) so a real OS env var still wins.
+    import os as _os
+    from pathlib import Path as _Path
+    _ENV = _Path(__file__).resolve().parent.parent / ".env"
+    if _ENV.exists():
+        try:
+            for _line in _ENV.read_text(encoding="utf-8").splitlines():
+                _line = _line.strip()
+                if not _line or _line.startswith("#") or "=" not in _line:
+                    continue
+                _line = _line[7:].lstrip() if _line.startswith("export ") else _line
+                _k, _, _v = _line.partition("=")
+                _v = _v.split(" #", 1)[0].strip().strip('"').strip("'")   # drop inline comments + quotes
+                _os.environ.setdefault(_k.strip(), _v)
+        except OSError:
+            pass
 
 
 # ── env helpers ──────────────────────────────────────────────────────────────

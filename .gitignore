@@ -36,3 +36,4 @@ swing_cache.json
 swing_state.json
 # supervisor diagnostic capture
 sup_diag*.log
+swing*.log
