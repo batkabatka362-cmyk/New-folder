@@ -67,11 +67,19 @@ Pipeline (wired in `main.py` `Bot` as asyncio tasks): **feed → ingest → eval
 - `miss_learn_loop` (every `miss_learn_interval_s`, default 600s, P8) replays recently-observed-but-not-bought mints, re-prices them once via DexScreener, and records / reflects on "missed winners" — the regret complement to per-trade reflection. Off the hot path; self-degrades without DexScreener (no-op) or an LLM (record-only).
 - `calibrate_loop` (every `calibrate_interval_s`, default 3600s, P8) classifies our own observations into outcomes, derives ADVISORY threshold suggestions from what actually separates winners from rugs, and learns per-creator reputation (realized rug/win rate) — fed to the brain. Suggestions are logged + stored as a recalled lesson, **never auto-applied to live risk config**. Off the hot path (DB read in a worker thread); no-op below `calibrate_min_mints`.
 
+**Swing subsystem (WL17–28, `memebot/swing/`) — a SEPARATE paper system, `python -m memebot.swing`, that NEVER touches `main.py`.** It trades the project's one validated net-positive edge: mean-reversion on established liquid memecoins (buy ~18% below the 24-bar 4h SMA, sell on reversion above it — WL17, OOS-validated, robust to survivorship/fees/slippage/params). It is the autonomous, self-improving AGI-direction loop:
+
+- **Perceive:** keyless **GeckoTerminal** OHLCV (`feed/geckoterminal.py`, ~30/min, so the per-scan polling never exhausts the Solana Tracker free tier); Solana Tracker only does the low-frequency universe-liquidity check + the weekly discovery.
+- **Act:** `swing/runner.py` polls the universe each `swing_scan_interval_s`, steps `swing/engine.py` (a self-contained paper ledger: fees+slippage per side, hard-stop + time-stop + a portfolio kill-switch) EXACTLY ONCE per CLOSED bar (replaying multi-bar gaps), and persists `swing_state.json` atomically + schema-drift-safe.
+- **Self-research + improve:** `_discover` (weekly) re-runs walk-forward discovery (`backtest/swing_discover.py`, multi-split + min-trades multiple-testing control) and, via `swing/promote.py`, PROMOTES a challenger config to live only if it beats the live config OOS by `swing_promote_margin` for `swing_promote_streak` consecutive runs (writes `swing_live_params.json`; reversible).
+- **Survive + run:** kill-switch + `swing/__main__.py` single-instance lock + `config.validate()`; crash-resilient under `python -m memebot.supervisor --target memebot.swing`.
+- **Forward-proof gate (#8):** `swing/readiness.py` is the auditable GO/NO-GO that the edge HOLDS on the live (paper) book — advisory, NEVER flips live mode (going live stays a human decision under the PAPER-ONLY constraint). Mean-reversion ONLY — momentum/breakout had no edge, and holding winners PAST the SMA reversion HURTS (the bounce reverts); the edge is in the selectivity + the quick bank, not in letting winners run. The backtest (`swing_lab._simulate`) and the live engine are kept at exact per-trade cost parity (regression-tested).
+
 Module map (`memebot/` package):
 
 | Package | Role |
 |---|---|
-| `feed/` | `pumpportal_ws` (free discovery WS: subscribeNewToken/subscribeMigration), `dexscreener` (REST enrichment + paper-fill price; `PairSnapshot` has buys/sells/buy_sell_ratio h1, price_change m5/h1, liquidity_usd), `helius_rpc` (authority + top-5 holder concentration + `get_recent_buyers`/`get_asset_image`), `jupiter` (A2 honeypot quote), `rugcheck` (B1 risk cross-check), `solanatracker` (WL14: Axiom-style risk score + bundle/sniper/insider/top-10 data, free tier, OFF without a key), `watchlist` (metered trade stream, OFF by default) |
+| `feed/` | `pumpportal_ws` (free discovery WS: subscribeNewToken/subscribeMigration), `dexscreener` (REST enrichment + paper-fill price; `PairSnapshot` has buys/sells/buy_sell_ratio h1, price_change m5/h1, liquidity_usd), `helius_rpc` (authority + top-5 holder concentration + `get_recent_buyers`/`get_asset_image`), `jupiter` (A2 honeypot quote), `rugcheck` (B1 risk cross-check), `solanatracker` (WL14: Axiom-style risk score + bundle/sniper/insider/top-10 data, free tier, OFF without a key), `geckoterminal` (WL23: KEYLESS OHLCV for the swing forward-test, ~30/min), `watchlist` (metered trade stream, OFF by default) |
 | `data/` | `token_state` (`TokenRegistry`/`TokenState`: rolling price trend, EMA/breakout technicals, unique buyers, buy/sell ratio), `candles`, `indicators`, `creator_history` (serial-rugger launch count), `smart_money` (per-wallet PnL, needs the G3 tape), `buyer_intel` (`BuyerIntel`: WL9 free-data smart-money — wallet reputation from our forward outcomes -> smart/dumper early-buyer confluence; OFF by default) |
 | `filter/` | `rules` (hard safety/market gates + `scam_likelihood` + holder quality), `features` (**`FEATURE_NAMES`** — single source of truth, load-bearing column order), `gbm` (LightGBM scorer, dormant) |
 | `signals/` | `scoring` (`Scorer`: GBM-or-rule, affine-rescaled rule score 0..1; `select_mode`), `setup` (`classify_setup`: survival-first good/marginal/bad grade) |
@@ -81,8 +89,9 @@ Module map (`memebot/` package):
 | `portfolio/` | `portfolio` (`Portfolio`/`Position`/`ExitParams`/`ClosedTrade`; `should_exit`, `should_take_partial`, `derisk_fraction`), `pnl` (`compute_stats`) |
 | `storage/` | `db` (SQLite WAL: tokens, candidates, trades, equity, lessons, verdicts, observations, trade_outcomes, missed_winners, miss_judged, hold_concentration, wallets, buyer_reputations), `archive` (Parquet) |
 | `alerts/` | `telegram` (async alert queue), `commands` (`/pnl` `/positions` `/status` `/stop` `/resume` `/help`) |
-| `backtest/` | `replay`, `label`, `train_gbm`, `simulate`, plus study/sweep tools |
-| `main.py` | `Bot`: wiring of all the loops above |
+| `swing/` | **WL17–28 SWING subsystem (separate paper system; see Architecture).** `strategy` (pure mean-rev signal), `engine` (`SwingEngine`/`SwingParams`: self-contained paper ledger + stop/kill-switch + glitch guards), `universe` (liquid established-token set), `runner` (`SwingRunner`: per-closed-bar scan + replay + atomic/schema-safe state + discovery + promotion), `promote` (`decide_promotion` self-improvement gate), `readiness` (forward-proof GO/NO-GO), `status`, `__main__` (lock + validate) |
+| `backtest/` | `replay`, `label`, `train_gbm`, `simulate`; swing: `swing_lab` (feasibility + exit/param sweeps), `swing_discover` (walk-forward + multiple-testing discovery), `st_separation`; plus study/sweep tools |
+| `main.py` | `Bot`: wiring of all the loops above (the SNIPER) |
 
 ## Conventions that matter
 
