@@ -23,6 +23,14 @@ firm — NOT peer-reviewed; 2024–2025 data windows, point-in-time, drift over 
 loss-MINIMISATION, not profit.** [2602.13480; Pine Analytics; BeInCrypto]
 - The best ML screen reaches **AUPRC ≈ 0.573**; a top-100 risk-ranked selection **still loses 26.64%**
   (vs ~60.71% for random) — i.e. ML **reduces loss by up to 56.1%, never turns positive.**
+- **Our own data confirms the ceiling:** every single free-data signal separates at AUC ~0.5 on our
+  realized book (authority, LP, concentration, creator, branding, latency, scorer, image, buyer-intel,
+  AND the full Solana Tracker / Axiom risk suite — WL15), and a LightGBM **combining all free-data
+  features reaches only val AUC ~0.56–0.58** (stable across 180s/300s horizons, 514 labeled rows; the
+  velocity/volume features — vol/mcap, buy/sell, vol_per_min — carry what little signal there is). That
+  matches the cited ~0.573 and is
+  the **loss-reduction (not profit) ceiling**: the combined model is the last free-data lever and it,
+  too, only reduces loss. (Thin/noisy at this n — retrain as data accrues before relying on it live.)
 - The **only documented profitable edge** belongs to **deployer-funded, same-block insider snipers**
   (87% of snipes profitable, 15,000+ SOL extracted in ~1 month, 4,600+ sniper wallets, 10,400+ deployers).
   That edge is **speed/advance-notice** — a free-data bot lacking MEV/co-location/speed infra **cannot
