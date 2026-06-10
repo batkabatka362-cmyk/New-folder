@@ -31,6 +31,8 @@ _SIGNALS = (
     ("st_top10", True),             # WL14 top-10 holder concentration % (higher = worse)
     ("st_snipers_pct", True),       # WL14 sniper share % (higher = worse)
     ("st_insiders_pct", True),      # WL14 insider share % (higher = worse)
+    ("st_bundlers_pct", True),      # WL14 bundled coordinated-wallet supply % (the literature's #1 rug tell)
+    ("st_dev_pct", True),           # WL14 dev/creator current holding % (higher = more dump risk)
 )
 
 

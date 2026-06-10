@@ -732,10 +732,17 @@ class Bot:
             st = await self.solanatracker.risk(c.mint)
             if st:
                 for k, fk in (("score", "st_risk_score"), ("top10", "st_top10"),
-                              ("snipers_pct", "st_snipers_pct"), ("insiders_pct", "st_insiders_pct")):
+                              ("snipers_pct", "st_snipers_pct"), ("insiders_pct", "st_insiders_pct"),
+                              ("bundlers_pct", "st_bundlers_pct"), ("dev_pct", "st_dev_pct")):
                     if st.get(k) is not None:
                         c.features[fk] = st[k]
-                veto = (self.s.solanatracker_veto_on_danger and (st.get("rugged") or st.get("danger"))) or \
+                # `rugged` is the clean, rare, unambiguous rug flag -> ALWAYS veto. The broad `danger` flag
+                # is fired by ubiquitous "Top 10 Holders"/"Bundlers Detected" risks on ~80% of pump.fun
+                # tokens, so gating on it would block almost every buy without discriminating — it stays
+                # behind veto_on_danger (default OFF, log-first) until the score/top10 cuts are calibrated
+                # from our own realized outcomes (signal_separation).
+                veto = st.get("rugged") or \
+                       (self.s.solanatracker_veto_on_danger and st.get("danger")) or \
                        (self.s.solanatracker_max_risk_score > 0 and (st.get("score") or 0) >= self.s.solanatracker_max_risk_score)
                 if veto:
                     why = ("rugged" if st.get("rugged") else (", ".join(st.get("risks", [])[:3]) or f"risk={st.get('score')}"))
@@ -775,7 +782,8 @@ class Bot:
         # trade's entry features (dataset-only keys) so each is validated against THIS trade's realized
         # outcome (image_separation / signal_separation style).
         for k in ("smart_buyer_count", "dumper_buyer_count", "early_buyers",
-                  "st_risk_score", "st_top10", "st_snipers_pct", "st_insiders_pct"):
+                  "st_risk_score", "st_top10", "st_snipers_pct", "st_insiders_pct",
+                  "st_bundlers_pct", "st_dev_pct"):
             if k in c.features:
                 entry_feats[k] = c.features[k]
         if not self.portfolio.apply_buy(

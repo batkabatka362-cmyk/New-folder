@@ -383,8 +383,10 @@ class Settings:
     solanatracker_enabled: bool = False
     solanatracker_api_key: str = ""              # free x-api-key from solanatracker.io (NEVER commit it)
     solanatracker_base_url: str = "https://data.solanatracker.io"
-    solanatracker_veto_on_danger: bool = True    # veto a buy on a rugged flag / danger-level risk
-    solanatracker_max_risk_score: float = 0.0    # also veto if risk score (1-10) >= this (0 = off; e.g. 7)
+    # `rugged` ALWAYS vetoes (clean/rare). danger is too broad (Top-10/Bundlers fire on ~80% of tokens) ->
+    # default OFF, log-first; calibrate the score/top10 cuts from our outcomes before gating on them.
+    solanatracker_veto_on_danger: bool = False   # also veto on any danger-level risk (noisy — calibrate first)
+    solanatracker_max_risk_score: float = 0.0    # also veto if risk score (1-10) >= this (0 = off; e.g. 8)
     bitquery_api_key: str = ""
     moralis_api_key: str = ""
     anthropic_api_key: str = ""
@@ -641,7 +643,7 @@ class Settings:
             solanatracker_enabled=_bool("SOLANATRACKER_ENABLED", False),       # WL14 Axiom-style risk data
             solanatracker_api_key=_str("SOLANATRACKER_API_KEY", ""),
             solanatracker_base_url=_str("SOLANATRACKER_BASE_URL", "https://data.solanatracker.io"),
-            solanatracker_veto_on_danger=_bool("SOLANATRACKER_VETO_ON_DANGER", True),
+            solanatracker_veto_on_danger=_bool("SOLANATRACKER_VETO_ON_DANGER", False),
             solanatracker_max_risk_score=_float("SOLANATRACKER_MAX_RISK_SCORE", 0.0),
             bitquery_api_key=_str("BITQUERY_API_KEY"),
             moralis_api_key=_str("MORALIS_API_KEY"),

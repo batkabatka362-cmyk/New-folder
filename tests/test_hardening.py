@@ -805,11 +805,13 @@ def test_solanatracker_risk_parse():
     assert _pct("x") is None and _pct(None) is None
     data = {"risk": {"rugged": False, "score": 8, "top10": 45.0,
                      "snipers": {"totalPercentage": 22.0}, "insiders": {"count": 3},
+                     "bundlers": {"totalPercentage": 36.5}, "dev": {"percentage": 9.0},
                      "risks": [{"name": "high_concentration", "level": "danger"},
                                {"name": "low_liquidity", "level": "warn"}]}}
     r = SolanaTrackerClient._parse(data)
     assert r["rugged"] is False and r["score"] == 8.0 and r["top10"] == 45.0
     assert r["snipers_pct"] == 22.0 and r["insiders_pct"] == 3.0
+    assert r["bundlers_pct"] == 36.5 and r["dev_pct"] == 9.0          # the #1 rug tell + dev holding
     assert r["danger"] is True and r["risks"] == ["high_concentration", "low_liquidity"]   # danger-level risk
     assert SolanaTrackerClient._parse({"risk": {"rugged": True}})["danger"] is True          # rugged alone = danger
     assert SolanaTrackerClient._parse({"token": {}}) is None and SolanaTrackerClient._parse("x") is None

@@ -88,6 +88,8 @@ class SolanaTrackerClient:
             "top10": _pct(risk.get("top10")),
             "snipers_pct": _pct(risk.get("snipers")),
             "insiders_pct": _pct(risk.get("insiders")),
+            "bundlers_pct": _pct(risk.get("bundlers")),   # coordinated multi-wallet supply % — literature's #1 rug tell
+            "dev_pct": _pct(risk.get("dev")),             # dev/creator current holding %
             "danger": danger,
             "risks": names,
         }
