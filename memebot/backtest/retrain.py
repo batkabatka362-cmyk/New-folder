@@ -98,6 +98,56 @@ def _train(xs, ys, threshold: float, val_frac: float = 0.2, rounds: int = 300, b
     return b, auc, {"precision": prec, "base_rate": base, "n_pred_pos": npp}
 
 
+def run_once(s, *, db=None, horizon=300.0, up=0.5, tol=90.0, min_auc=0.6, population="observations",
+             indexed_only=True, death_drop=0.9, min_precision_lift=0.05, min_pred_pos=10,
+             log_fn=print) -> dict:
+    """One label -> train -> SAFE-gate -> deploy-or-keep cycle. Reusable by the CLI and the bot's
+    autonomous retrain loop. Returns {'action', 'auc', 'deployed', 'n', 'pos', ...}; never deploys a
+    model that doesn't clear the AUC floor AND beat the operating-threshold precision over base rate.
+    Importing lightgbm is the caller's responsibility (the loop guards it)."""
+    rows = _load_all_obs(db or s.db_path, source=population)
+    indexed_only = indexed_only or population == "observations"
+    dd = death_drop if death_drop and death_drop > 0 else None
+    labeled = fixed_horizon_labels(rows, horizon, up, tol, death_drop=dd, indexed_only=indexed_only)
+    if len(labeled) < 50:
+        log_fn(f"retrain: only {len(labeled)} labeled mints at +{horizon:.0f}s "
+               f"(pop={population}, indexed_only={indexed_only}, death_drop={dd}) -- collect more data.")
+        return {"action": "insufficient", "n": len(labeled)}
+    xs = [row_from_feats(f) for _m, f, _l, _fwd in labeled]   # serve-consistent FEATURE_DEFAULTS encoding
+    ys = [lbl for _m, _f, lbl, _fwd in labeled]
+    pos = sum(ys)
+    threshold = s.gbm_entry_threshold
+    booster, auc, vm = _train(xs, ys, threshold, balance=s.gbm_balance_classes)
+    if booster is None:
+        log_fn(f"retrain: not trainable yet (n={len(ys)}, positives={pos}) — need both classes per split.")
+        return {"action": "untrainable", "n": len(ys), "pos": pos}
+    auc_file = s.gbm_model_path + ".auc"
+    deployed = 0.0
+    if os.path.exists(auc_file):
+        try:
+            deployed = float(open(auc_file).read().strip())
+        except (ValueError, OSError):
+            deployed = 0.0
+    log_fn(f"retrain: candidate AUC {auc:.3f} | deployed {deployed:.3f} | floor {min_auc:.3f} | "
+           f"n={len(ys)} pos={pos} ({pos / len(ys) * 100:.0f}%) | val_precision {vm['precision']:.3f} "
+           f"vs base {vm['base_rate']:.3f} (+lift {min_precision_lift:.2f}, n_pred_pos={vm['n_pred_pos']}) @ thr {threshold}")
+    out = {"action": "kept", "auc": auc, "deployed": deployed, "n": len(ys), "pos": pos, **vm}
+    if should_deploy(auc, deployed, min_auc, precision=vm["precision"], base_rate=vm["base_rate"],
+                     min_precision_lift=min_precision_lift, n_pred_pos=vm["n_pred_pos"], min_pred_pos=min_pred_pos):
+        booster.save_model(s.gbm_model_path)
+        with open(auc_file, "w") as fh:
+            fh.write(f"{auc:.4f}")
+        log_fn(f"retrain: DEPLOYED -> {s.gbm_model_path} (restart the bot to load it).")
+        out["action"] = "deployed"
+    else:
+        why = ("AUC below bar" if auc < max(min_auc, deployed)
+               else f"precision {vm['precision']:.3f} < base {vm['base_rate']:.3f}+{min_precision_lift:.2f} "
+                    f"or n_pred_pos {vm['n_pred_pos']}<{min_pred_pos}")
+        log_fn(f"retrain: KEPT the current model ({why}).")
+        out["why"] = why
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Retrain the GBM and deploy only if it improves.")
     ap.add_argument("--db", default=None)
@@ -123,54 +173,9 @@ def main() -> None:
         import lightgbm  # noqa: F401
     except ImportError:
         raise SystemExit("pip install lightgbm numpy")
-
-    rows = _load_all_obs(args.db or s.db_path, source=args.population)
-    # P4: training on the unbiased `observations` population is only meaningful IN-DISTRIBUTION
-    # (liquidity>0) with death-aware labels — auto-enable indexed_only for that population.
-    indexed_only = args.indexed_only or args.population == "observations"
-    death_drop = args.death_drop if args.death_drop > 0 else None
-    labeled = fixed_horizon_labels(rows, args.horizon, args.up, args.tol,
-                                   death_drop=death_drop, indexed_only=indexed_only)
-    if len(labeled) < 50:
-        print(f"only {len(labeled)} labeled mints at +{args.horizon:.0f}s "
-              f"(population={args.population}, indexed_only={indexed_only}, death_drop={death_drop}) "
-              "-- collect more data first.")
-        return
-    # serve-consistent encoding: a key MISSING from an old logged row defaults to its FEATURE_DEFAULTS
-    # sentinel (-1 safety / -2 categorical / 0.0 else), NOT a blanket 0.0 — else a model trained over a
-    # window straddling a schema change learns spurious structure (the P2 row_from_feats discipline).
-    xs = [row_from_feats(f) for _m, f, _l, _fwd in labeled]
-    ys = [lbl for _m, _f, lbl, _fwd in labeled]
-    pos = sum(ys)
-    threshold = s.gbm_entry_threshold                       # the LIVE operating point for the precision gate
-    booster, auc, vm = _train(xs, ys, threshold, balance=s.gbm_balance_classes)
-    if booster is None:
-        print(f"not trainable yet (n={len(ys)}, positives={pos}) — need both classes in each split.")
-        return
-
-    auc_file = s.gbm_model_path + ".auc"
-    deployed = 0.0
-    if os.path.exists(auc_file):
-        try:
-            deployed = float(open(auc_file).read().strip())
-        except (ValueError, OSError):
-            deployed = 0.0
-    print(f"candidate AUC {auc:.3f} | deployed {deployed:.3f} | floor {args.min_auc:.3f} | "
-          f"n={len(ys)} pos={pos} ({pos / len(ys) * 100:.0f}%) | "
-          f"val_precision {vm['precision']:.3f} vs base {vm['base_rate']:.3f} "
-          f"(+lift req {args.min_precision_lift:.2f}, n_pred_pos={vm['n_pred_pos']}) @ thr {threshold}")
-    if should_deploy(auc, deployed, args.min_auc, precision=vm["precision"], base_rate=vm["base_rate"],
-                     min_precision_lift=args.min_precision_lift, n_pred_pos=vm["n_pred_pos"],
-                     min_pred_pos=args.min_pred_pos):
-        booster.save_model(s.gbm_model_path)
-        with open(auc_file, "w") as fh:
-            fh.write(f"{auc:.4f}")
-        print(f"DEPLOYED -> {s.gbm_model_path} (restart the bot to load it).")
-    else:
-        why = ("AUC below bar" if auc < max(args.min_auc, deployed)
-               else f"precision {vm['precision']:.3f} < base {vm['base_rate']:.3f}+{args.min_precision_lift:.2f} "
-                    f"or n_pred_pos {vm['n_pred_pos']}<{args.min_pred_pos}")
-        print(f"KEPT the current model ({why}).")
+    run_once(s, db=args.db, horizon=args.horizon, up=args.up, tol=args.tol, min_auc=args.min_auc,
+             population=args.population, indexed_only=args.indexed_only, death_drop=args.death_drop,
+             min_precision_lift=args.min_precision_lift, min_pred_pos=args.min_pred_pos)
 
 
 if __name__ == "__main__":

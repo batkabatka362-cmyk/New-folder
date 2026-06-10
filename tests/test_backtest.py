@@ -159,6 +159,16 @@ def test_precision_over_base():
     assert precision_over_base([], [], 0.5) == (0.0, 0.0, 0)   # empty -> no crash
 
 
+def test_retrain_run_once_and_loop_config():
+    """A1: run_once is the reusable label->train->safe-gate cycle the bot's autonomous retrain loop calls,
+    and the loop knobs load. (The gate itself is covered by test_should_deploy / test_precision_over_base.)"""
+    from memebot.backtest.retrain import run_once
+    assert callable(run_once)
+    from memebot.config import Settings
+    s = Settings.load()
+    assert isinstance(s.retrain_loop_enabled, bool) and s.retrain_loop_interval_s >= 0
+
+
 def test_rug_timing():
     from memebot.backtest.rug_timing import mint_timing, timestop_sweep
     # a rug: falls >=80% below entry at age 20 (first crossing), even after a pump

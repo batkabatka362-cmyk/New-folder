@@ -330,6 +330,13 @@ class Settings:
     # scale_pos_weight = n_neg/n_pos shifts the minority class up. A class-prior fix, NOT data-snooping
     # (correct regardless of sample size); the precision-over-base deploy gate still guards what ships.
     gbm_balance_classes: bool = True        # apply scale_pos_weight = n_neg/n_pos when training the GBM
+    # A1 (autonomous self-improvement): the bot periodically retrains the GBM from accrued in-distribution
+    # data and DEPLOYS it only through the safe AUC-floor + precision-over-base gate (never a worse model;
+    # takes effect on next restart). Off the hot path (a worker thread). No-op without lightgbm. The honest
+    # ceiling is ~0.57 < the 0.6 floor, so it will KEEP the rule scorer until the data/features support a
+    # genuinely better model — which is correct, not a bug.
+    retrain_loop_enabled: bool = True
+    retrain_loop_interval_s: float = 86400.0  # how often to retrain (daily; fully off the hot path). 0 disables.
     # GO-LIVE GATE (advisory — `python -m memebot.readiness`): the explicit, auditable criteria that must
     # ALL hold on the HONEST (CLEAN, glitch-excluded) realized book before real money is even considered.
     # A single lucky AUC can't satisfy this; it's the durable-PnL gate. NEVER auto-flips live mode.
@@ -617,6 +624,8 @@ class Settings:
             gbm_model_path=_str("GBM_MODEL_PATH", "gbm_model.txt"),
             gbm_entry_threshold=_float("GBM_ENTRY_THRESHOLD", 0.40),
             gbm_balance_classes=_bool("GBM_BALANCE_CLASSES", True),
+            retrain_loop_enabled=_bool("RETRAIN_LOOP_ENABLED", True),
+            retrain_loop_interval_s=_float("RETRAIN_LOOP_INTERVAL_S", 86400.0),
             go_live_min_trades=_int("GO_LIVE_MIN_TRADES", 100),
             go_live_min_profit_factor=_float("GO_LIVE_MIN_PROFIT_FACTOR", 1.3),
             gbm_shadow_model_path=_str("GBM_SHADOW_MODEL_PATH", ""),

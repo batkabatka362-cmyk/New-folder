@@ -1317,6 +1317,27 @@ class Bot:
         mint_outcomes = {r["mint"]: r["outcome"] for r in recs}   # WL9: resolve recorded buyers' reputations
         return summary, suggest_thresholds(summary), rep, readiness(summary), separation_report(recs), mint_outcomes
 
+    async def _retrain_loop(self) -> None:
+        """A1 autonomous self-improvement: periodically retrain the GBM from accrued in-distribution data
+        and DEPLOY it ONLY through retrain.run_once's safe AUC-floor + precision-over-base gate (never a
+        worse model; effective on next restart). Off the hot path (a worker thread). Self-disables if
+        lightgbm isn't installed. A retrain failure must NEVER touch the live scorer or kill the bot."""
+        try:
+            import lightgbm  # noqa: F401
+        except ImportError:
+            log.info("retrain loop: lightgbm not installed — disabled.")
+            return
+        from .backtest.retrain import run_once
+        while True:
+            await asyncio.sleep(self.s.retrain_loop_interval_s)
+            try:
+                res = await asyncio.to_thread(run_once, self.s, log_fn=log.info)
+                if res.get("action") == "deployed":
+                    self.alerter.send(f"🧠 GBM retrained + DEPLOYED (val AUC {res.get('auc', 0):.3f}) — "
+                                      "effective on next restart.")
+            except Exception as e:  # noqa: BLE001 — a retrain must never kill the bot or touch the live model
+                log.warning("retrain loop error: %s", type(e).__name__)
+
     async def _calibrate_loop(self) -> None:
         """P8 self-improvement: periodically (off the hot path) classify our own outcomes, learn what
         SEPARATES winners from rugs + each creator's track record, and surface it. ADVISORY only —
@@ -1611,6 +1632,9 @@ class Bot:
             if self.s.calibrate_enabled and self.s.calibrate_interval_s > 0:
                 # P8: self-calibration (learn what separates winners from rugs + creator reputation).
                 tasks.append(asyncio.create_task(self._calibrate_loop(), name="calibrate"))
+            if self.s.retrain_loop_enabled and self.s.retrain_loop_interval_s > 0:
+                # A1: autonomous GBM retrain + safe-gate deploy (self-improvement). Off the hot path.
+                tasks.append(asyncio.create_task(self._retrain_loop(), name="retrain"))
             if self.commands.enabled:
                 tasks.append(asyncio.create_task(self.commands.run(), name="commands"))
             if self.s.archive_interval_s > 0 and self.archiver.available():
