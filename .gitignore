@@ -30,3 +30,7 @@ gbm_*.txt
 gbm_model.txt.*
 # scratch study diffs (e.g. _exitlab_diff.txt)
 *_diff.txt
+# WL17 swing_lab OHLCV cache (re-fetchable from the Solana Tracker /chart endpoint)
+swing_cache.json
+# supervisor diagnostic capture
+sup_diag*.log

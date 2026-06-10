@@ -113,6 +113,29 @@ Crucially, **they CONFIRM what the bot already does** — there is no secret sig
 ⇒ Net: the top-trader playbook validates our exits + sizing + smart-money + banded-filter direction. The
 gap is SPEED + paid smart-money/social data + human judgment, not a missing free-data signal.
 
+## 5c. A DIFFERENT game: MEAN-REVERSION on established memecoins (WL17 — the first real edge)
+
+Fresh-launch sniping is structurally dead for us (rug lottery + speed disadvantage). A different game —
+swing-trading LIQUID, ESTABLISHED survivors (BONK/WIF/POPCAT-tier) on an hours/days horizon — was
+feasibility-tested (`backtest/swing_lab`, hourly+4h OHLCV from Solana Tracker /chart, 15 tokens incl. a
+faded/high-drawdown stress set). Findings:
+- **Momentum/trend does NOT separate**: MA-cross and Donchian breakout both UNDERPERFORM buy-and-hold and
+  lose money (memecoins don't trend cleanly; overtrading + fees bleed them). Consistent with everything else.
+- **MEAN-REVERSION (buy ~12% below the 24-bar SMA, sell on reversion above the SMA) shows a real edge**:
+  net-POSITIVE and beats buy-and-hold on **15/15 tokens** over a window where buy-and-hold lost ~89%, win
+  rate ~59-62% on ~196 trades. The edge is **robust** to: survivorship (holds once faders/dyers are added
+  — it sells the bounces rather than riding to zero), fees (still 1.48x at a generous 3% round-trip), and
+  glitch-clipping (still positive + 15/15 even at an extreme 1.5x/bar clip; magnitude ranges ~1.06–1.9x
+  with assumptions, but the SIGN and hold-beating are robust).
+- **Why it's plausibly real (not the sniping trap):** it needs NO speed/MEV (hours/days horizon), low rug
+  risk (deep-LP survivors don't rug like fresh launches), and free OHLCV suffices. It's the mirror image
+  of the dead game.
+- **Open risks before trusting it live:** dip-buying slippage isn't fully modeled (the flat fee is a proxy;
+  the 3%-fee robustness gives some cushion); single time-window + 15-token basket; mean-reversion is
+  regime-sensitive (shines in choppy/ranging, can lag in a relentless one-way trend). ⇒ Verdict: worth
+  BUILDING as a new paper mode + forward-testing, NOT yet a proven live edge. This is the project's first
+  net-positive signal and the most promising direction — a genuinely different game from pump.fun sniping.
+
 ## 6. FOLKLORE / REFUTED — do NOT use these (failed adversarial verification)
 
 - ✗ **"76% rug rate" (76,469/100,063)** — failed verification (1-2). The defensible figure is the
