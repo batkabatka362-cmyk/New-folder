@@ -133,6 +133,18 @@ def test_runner_first_sighting_then_steps_once():
     assert bh_b == bh_d                                             # re-poll did NOT double-step
 
 
+def test_swing_readiness_gate():
+    """WL27: the forward-proof GO/NO-GO — GO only on enough trades + net-positive + pf + win-rate."""
+    from memebot.swing.readiness import assess
+    assert assess([{"pnl_sol": 0.5}], min_trades=40, min_pf=1.2, min_winrate=0.5)["go"] is False  # tiny sample
+    winning = [{"pnl_sol": 0.3}] * 30 + [{"pnl_sol": -0.1}] * 10                 # 40 trades, 75% win, net +8
+    r = assess(winning, min_trades=40, min_pf=1.2, min_winrate=0.5)
+    assert r["go"] and r["n"] == 40 and abs(r["win_rate"] - 0.75) < 1e-9 and r["net"] > 0
+    losing = [{"pnl_sol": -0.2}] * 40
+    r2 = assess(losing, min_trades=40, min_pf=1.2, min_winrate=0.5)
+    assert r2["go"] is False and any("net" in x for x in r2["reasons"])
+
+
 def test_promote_self_improvement():
     """WL25: a challenger that beats live by the margin for streak_needed CONSECUTIVE runs is promoted;
     a within-margin challenger or a non-mean-reversion (Bollinger) winner is NOT."""

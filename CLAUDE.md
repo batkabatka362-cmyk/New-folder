@@ -14,6 +14,7 @@ python -m memebot.supervisor       # AUTONOMY: keep the bot alive across crashes
 python -m memebot.swing            # WL18 SWING mode (SEPARATE paper system): mean-reversion on established liquid memecoins — the WL17 net-positive edge. Keyless GeckoTerminal OHLCV (WL23); own loop/book/swing_state.json + single-instance lock; never touches the sniper. PAPER-ONLY.
 python -m memebot.supervisor --target memebot.swing   # AUTONOMY for the swing: keep it alive across crashes (same supervisor, --target picks the module). Run alongside the sniper's own supervisor.
 python -m memebot.swing.status     # WL18 swing forward-test book (reads swing_state.json, no network): equity / closed-trade win-rate / profit factor / open positions vs the WL17 backtest yardstick.
+python -m memebot.swing.readiness  # WL27 swing FORWARD-PROOF gate: the auditable GO/NO-GO that the edge HOLDS on the live (paper) book (>=40 trades, net-positive, pf>=1.2, win>=50% vs the ~69% backtest). Advisory; NEVER flips live mode — going live stays a human decision (paper-only hard constraint).
 python run_tests.py                # test suite — dependency-free runner; also works under `pytest`
 python demo.py                     # end-to-end demo: one token through the full pipeline (in-memory DB)
 python -m memebot.status           # status dashboard: equity / funnel / verdicts / lessons

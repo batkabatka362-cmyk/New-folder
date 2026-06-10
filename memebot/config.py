@@ -403,6 +403,10 @@ class Settings:
     swing_promote_enabled: bool = True
     swing_promote_margin: float = 0.15          # challenger must beat live OOS gmean by >= this fraction
     swing_promote_streak: int = 3               # for this many consecutive weekly discovery runs
+    # WL27 swing readiness gate (advisory GO/NO-GO that the FORWARD edge holds; never flips live mode):
+    swing_ready_min_trades: int = 40            # need this many closed forward trades for significance
+    swing_ready_min_pf: float = 1.2             # realized profit factor floor
+    swing_ready_min_winrate: float = 0.50       # realized win-rate floor (backtest was ~0.69 -> 0.50 catches a collapse)
     # GO-LIVE GATE (advisory — `python -m memebot.readiness`): the explicit, auditable criteria that must
     # ALL hold on the HONEST (CLEAN, glitch-excluded) realized book before real money is even considered.
     # A single lucky AUC can't satisfy this; it's the durable-PnL gate. NEVER auto-flips live mode.
@@ -732,6 +736,9 @@ class Settings:
             swing_promote_enabled=_bool("SWING_PROMOTE_ENABLED", True),
             swing_promote_margin=_float("SWING_PROMOTE_MARGIN", 0.15),
             swing_promote_streak=_int("SWING_PROMOTE_STREAK", 3),
+            swing_ready_min_trades=_int("SWING_READY_MIN_TRADES", 40),
+            swing_ready_min_pf=_float("SWING_READY_MIN_PF", 1.2),
+            swing_ready_min_winrate=_float("SWING_READY_MIN_WINRATE", 0.50),
             go_live_min_trades=_int("GO_LIVE_MIN_TRADES", 100),
             go_live_min_profit_factor=_float("GO_LIVE_MIN_PROFIT_FACTOR", 1.3),
             gbm_shadow_model_path=_str("GBM_SHADOW_MODEL_PATH", ""),
