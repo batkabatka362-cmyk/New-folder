@@ -148,10 +148,10 @@ def donchian(n=48, m=24):
     return d
 
 
-def mean_rev(window=24, k=0.12, regime_window=0, regime_tol=0.0):
-    """Mean-reversion: buy < SMA*(1-k), sell on reversion above SMA. Optional REGIME GATE: if
-    regime_window>0, skip the dip-buy when price is more than regime_tol below the LONG SMA (a structural
-    downtrend — don't catch a falling knife). regime_tol=0 => only buy dips at/above the long average."""
+def mean_rev(window=24, k=0.12, regime_window=0, regime_tol=0.0, exit_k=0.0):
+    """Mean-reversion: buy < SMA*(1-k), sell on reversion above SMA*(1+exit_k). exit_k>0 HOLDS the winner
+    PAST the SMA for more of the bounce (the 'hold winners longer' lever). Optional REGIME GATE: if
+    regime_window>0, skip the dip-buy when price is more than regime_tol below the LONG SMA."""
     def d(c, h, l, i, pos):
         sma = _sma(c, i, window)
         if sma is None:
@@ -162,7 +162,7 @@ def mean_rev(window=24, k=0.12, regime_window=0, regime_tol=0.0):
                 if ls is not None and ls > 0 and c[i] < ls * (1 - regime_tol):
                     return 0                                # structural downtrend -> skip the dip
             return 1
-        if pos == 1 and c[i] > sma:
+        if pos == 1 and c[i] > sma * (1 + exit_k):
             return 0
         return pos
     return d
