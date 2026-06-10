@@ -39,9 +39,11 @@ def bollinger(window: int, k: float):
     return d
 
 
-def _eval_split(data: dict, decide, warmup: int, fee: float, clip: float, split: float) -> dict:
+def _eval_split(data: dict, decide, warmup: int, fee: float, clip: float, split: float,
+                slippage_bps: float = 0.0) -> dict:
     """Walk-forward: per token, fit/observe on bars[:cut] (TRAIN) and judge on bars[cut:] (TEST). Returns
-    train/test geometric-mean multiples + how many tokens the strategy beat buy-and-hold in each slice."""
+    train/test geometric-mean multiples + how many tokens the strategy beat buy-and-hold in each slice.
+    Costs (fee + slippage) are applied identically to the strategy and the hold baseline for a fair OOS test."""
     tr_mults, te_mults, tr_beat, te_beat, n = [], [], 0, 0, 0
     for _sym, bars in data.items():
         cut = int(len(bars) * split)
@@ -49,10 +51,10 @@ def _eval_split(data: dict, decide, warmup: int, fee: float, clip: float, split:
         if len(tr) < warmup + 5 or len(te) < warmup + 5:
             continue
         n += 1
-        h_tr = _simulate(tr, buy_hold, fee, 0, clip)[0]
-        h_te = _simulate(te, buy_hold, fee, 0, clip)[0]
-        e_tr = _simulate(tr, decide, fee, warmup, clip)[0]
-        e_te = _simulate(te, decide, fee, warmup, clip)[0]
+        h_tr = _simulate(tr, buy_hold, fee, 0, clip, slippage_bps=slippage_bps)[0]
+        h_te = _simulate(te, buy_hold, fee, 0, clip, slippage_bps=slippage_bps)[0]
+        e_tr = _simulate(tr, decide, fee, warmup, clip, slippage_bps=slippage_bps)[0]
+        e_te = _simulate(te, decide, fee, warmup, clip, slippage_bps=slippage_bps)[0]
         tr_mults.append(e_tr)
         te_mults.append(e_te)
         tr_beat += (e_tr > h_tr)
@@ -73,13 +75,13 @@ def _search_space():
     return space
 
 
-def run_discovery(data: dict, fee: float, clip: float, split: float) -> list:
+def run_discovery(data: dict, fee: float, clip: float, split: float, slippage_bps: float = 0.0) -> list:
     """Pure: search the space, walk-forward-validate each config, return rows sorted by OOS gmean as
     [(test_gmean, name, metrics, passed)]. Shared by the CLI and the swing runner's autonomous loop.
     PASS = beats hold >=70% OUT-of-sample AND profitable OOS AND consistent IN-sample (>=60%)."""
     rows = []
     for name, decide, warmup in _search_space():
-        r = _eval_split(data, decide, warmup, fee, clip, split)
+        r = _eval_split(data, decide, warmup, fee, clip, split, slippage_bps=slippage_bps)
         if not r["n"]:
             continue
         passed = (r["test_beat"] / r["n"] >= 0.70 and r["test_gmean"] > 1.0
@@ -95,6 +97,7 @@ def main() -> None:
     ap.add_argument("--clip", type=float, default=2.0)
     ap.add_argument("--type", default="4h")
     ap.add_argument("--split", type=float, default=0.7, help="train fraction; the rest is held-out test")
+    ap.add_argument("--slippage", type=float, default=0.0, help="per-side slippage bps (honest dip-buy cost)")
     args = ap.parse_args()
     s = get_settings()
     if not (s.solanatracker_enabled and s.solanatracker_api_key):
@@ -108,7 +111,7 @@ def main() -> None:
     print(f"=== STRATEGY DISCOVERY ({args.type}, fee {args.fee*100:.0f}%, clip {args.clip}, "
           f"train {args.split*100:.0f}% / test {(1-args.split)*100:.0f}%, {len(data)} tokens) ===")
     print(f"  {'strategy':18} {'tr_gmean':>8} {'te_gmean':>8} {'tr>hold':>8} {'te>hold':>8}  verdict")
-    rows = run_discovery(data, args.fee, args.clip, args.split)
+    rows = run_discovery(data, args.fee, args.clip, args.split, slippage_bps=args.slippage)
     n_pass = 0
     for _te_g, name, r, passed in rows:
         n_pass += passed

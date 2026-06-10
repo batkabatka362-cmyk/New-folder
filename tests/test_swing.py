@@ -56,6 +56,73 @@ def test_engine_time_stop():
     assert out and out[0] == "exit" and out[1].reason == "time_stop"
 
 
+def test_engine_stop_loss():
+    """WL20 rank-2: a hard stop exits when price falls stop_k below ENTRY (falling-knife cap)."""
+    eng = SwingEngine(SwingParams(window=2, dip_k=0.0, exit_k=5.0, fee_pct=0.0, size_sol=1.0, stop_k=0.20),
+                      initial_sol=10.0)
+    eng.step("A", "A", [100, 98], 1.0)                              # enter at 98 (exit_k 5 -> no reversion exit)
+    out = eng.step("A", "A", [100, 78], 2.0)                        # (98-78)/98=0.204 >= 0.20 -> stop
+    assert out and out[0] == "exit" and out[1].reason == "stop"
+
+
+def test_engine_slippage_costs():
+    """WL20 rank-4: slippage makes a same-price round-trip lose more than with no slippage."""
+    def round_trip(slip_bps):
+        eng = SwingEngine(SwingParams(window=2, dip_k=0.0, exit_k=-1.0, fee_pct=0.0, size_sol=1.0,
+                                      slippage_bps=slip_bps), initial_sol=10.0)
+        eng.step("A", "A", [100, 98], 1.0)
+        out = eng.step("A", "A", [100, 98], 2.0)
+        return out[1].pnl_sol
+    assert abs(round_trip(0)) < 1e-9                                # no fee/slip -> flat
+    assert round_trip(100) < round_trip(0)                          # 100 bps/side slippage -> a loss
+
+
+def test_engine_kill_switch():
+    """WL20 rank-5: a rolling realized-loss halt + an aggregate-exposure cap block NEW entries."""
+    eng = SwingEngine(SwingParams(window=2, dip_k=0.0, exit_k=-1.0, fee_pct=0.0, size_sol=1.0,
+                                  rolling_loss_halt_sol=0.5, loss_halt_lookback=5), initial_sol=10.0)
+    eng.step("A", "A", [100, 90], 1.0)                              # enter at 90
+    eng.step("A", "A", [100, 40], 2.0)                             # exit at 40 -> pnl ~ -0.56
+    assert eng.closed and eng.closed[0].pnl_sol < -0.5
+    eng.step("B", "B", [100, 90], 3.0)                             # halted by the rolling-loss gate
+    assert "B" not in eng.positions
+    eng2 = SwingEngine(SwingParams(window=2, dip_k=0.0, fee_pct=0.0, size_sol=1.0, max_total_exposure_sol=1.5),
+                       initial_sol=10.0)
+    eng2.step("A", "A", [100, 90], 1.0)                            # deployed 1.0
+    eng2.step("B", "B", [100, 90], 1.0)                           # 1.0+1.0 > 1.5 cap -> blocked
+    assert len(eng2.positions) == 1
+
+
+def test_runner_steps_once_per_closed_bar():
+    """WL20 rank-1 (the bug): repeated polls with the SAME latest-bar ts must NOT step the engine twice
+    (no per-poll over-counting of bars_held, no intra-bar repaint)."""
+    import asyncio
+    from memebot.swing.runner import SwingRunner
+    from memebot.config import Settings
+    r = SwingRunner(Settings.load())
+    r._save = lambda: None                                          # don't write swing_state.json in the test
+    r.universe = {"SYM": "MINT"}
+    flat = [{"close": 100.0, "high": 101, "low": 99, "time": i * 1000} for i in range(25)]
+    bars = flat + [{"close": 70.0, "high": 101, "low": 69, "time": 25000}]   # last CLOSED bar is a deep dip
+    bars += [{"close": 71.0, "high": 72, "low": 70, "time": 26000}]          # a still-forming bar (excluded)
+
+    class FakeClient:
+        base_url = ""
+        async def chart(self_, mint, interval):
+            return bars
+
+    async def run():
+        c = FakeClient()
+        await r._scan_once(c)
+        h1 = r.engine.positions.get("MINT")
+        await r._scan_once(c)                                       # identical poll, same ts -> must not re-step
+        h2 = r.engine.positions.get("MINT")
+        return h1, h2
+    h1, h2 = asyncio.run(run())
+    assert h1 is not None                                           # entered on the closed dip bar
+    assert h1.bars_held == h2.bars_held                            # second identical poll did NOT advance
+
+
 def test_run_discovery_smoke():
     """WL19: the discovery engine searches + walk-forward-validates and returns ranked rows. Synthetic
     oscillating prices (mean-reversion has signal) -> at least one config runs + the row shape holds."""

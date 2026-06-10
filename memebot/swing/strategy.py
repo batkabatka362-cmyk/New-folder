@@ -16,16 +16,25 @@ def sma(values: list[float], window: int) -> float | None:
 
 
 def mean_rev_position(closes: list[float], *, window: int, dip_k: float, exit_k: float = 0.0,
-                      pos: int = 0) -> int:
+                      pos: int = 0, regime_window: int = 0, regime_tol: float = 0.0) -> int:
     """Desired position (0=flat, 1=long) given the close series (latest = closes[-1]) and the CURRENT
     position. Enter long when price < SMA*(1-dip_k) (a deep oversold dip); exit when price > SMA*(1+exit_k)
     (reversion). Holds otherwise. Returns the current pos unchanged until there's enough history for the
-    SMA — never acts on a partial window."""
+    SMA — never acts on a partial window.
+
+    Optional REGIME veto (regime_window>0): skip a dip-buy when price is more than regime_tol below the
+    LONG SMA (a structural downtrend). NOTE: backtest-REFUTED at the live k=0.18 (an 18% dip sits below the
+    long SMA too, so this kills ~all entries) — kept OFF by default; the deep-dip selectivity is the real
+    tail guard. Available for re-validation only."""
     s = sma(closes, window)
     if s is None or s <= 0:
         return pos
     price = closes[-1]
     if pos == 0 and price < s * (1.0 - dip_k):
+        if regime_window > 0:
+            ls = sma(closes, regime_window)
+            if ls is not None and ls > 0 and price < ls * (1.0 - regime_tol):
+                return 0                                 # structural downtrend -> skip the dip
         return 1
     if pos == 1 and price > s * (1.0 + exit_k):
         return 0

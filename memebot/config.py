@@ -373,6 +373,24 @@ class Settings:
     # matching the safe-gate discipline). The self-research seed of the AGI direction.
     swing_discover_enabled: bool = True
     swing_discover_interval_s: float = 604800.0   # weekly; 0 disables
+    # WL20 robustness hardening (workflow-designed, backtest-VALIDATED):
+    # - slippage: an honest per-side fill haircut on top of the fee (dip-buys fill into falling books).
+    # - stop_k / regime: a hard stop + a downtrend veto were BOTH backtested and REFUTED at the live
+    #   k=0.18 — they cut the edge (a stop forgoes the reversion; the regime gate kills ~all entries since
+    #   an 18% dip sits below the long SMA too). The deep-dip selectivity IS the tail guard (worst token
+    #   ~1.0). So both ship OFF by default (knobs kept for re-validation), not as live defaults.
+    # - the portfolio kill-switch + exposure cap ARE on (correlated memecoins -> cap the bad-day loss).
+    swing_slippage_bps: float = 30.0          # extra per-SIDE fill cost in bps (0.30%); on top of fee
+    swing_stop_k: float = 0.0                 # hard stop frac below entry (0=OFF — backtest showed it hurts mean-rev)
+    swing_regime_window: int = 0              # long-SMA window for the downtrend veto (0=OFF — refuted at k=0.18)
+    swing_regime_tol: float = 0.0             # allow price this frac below the long SMA before vetoing the dip
+    swing_max_total_exposure_sol: float = 0.0   # cap aggregate deployed SOL across positions (0=only the count cap)
+    # ON by default at a LOOSE threshold (survival-first): won't trip in normal positive operation, but
+    # halts NEW entries if the last N closed trades have lost >= 3 SOL (~30% of the 10-SOL book) — the
+    # correlated-memecoin-crash circuit breaker the per-token backtest can't model. Existing positions
+    # are still managed/exited; only NEW dip-buys pause.
+    swing_rolling_loss_halt_sol: float = 3.0    # halt NEW entries once realized loss over the window <= -this (0=off)
+    swing_loss_halt_lookback: int = 20          # how many recent closed trades the rolling-loss halt sums
     # GO-LIVE GATE (advisory — `python -m memebot.readiness`): the explicit, auditable criteria that must
     # ALL hold on the HONEST (CLEAN, glitch-excluded) realized book before real money is even considered.
     # A single lucky AUC can't satisfy this; it's the durable-PnL gate. NEVER auto-flips live mode.
@@ -674,6 +692,13 @@ class Settings:
             swing_scan_interval_s=_float("SWING_SCAN_INTERVAL_S", 1800.0),
             swing_discover_enabled=_bool("SWING_DISCOVER_ENABLED", True),
             swing_discover_interval_s=_float("SWING_DISCOVER_INTERVAL_S", 604800.0),
+            swing_slippage_bps=_float("SWING_SLIPPAGE_BPS", 30.0),
+            swing_stop_k=_float("SWING_STOP_K", 0.0),
+            swing_regime_window=_int("SWING_REGIME_WINDOW", 0),
+            swing_regime_tol=_float("SWING_REGIME_TOL", 0.0),
+            swing_max_total_exposure_sol=_float("SWING_MAX_TOTAL_EXPOSURE_SOL", 0.0),
+            swing_rolling_loss_halt_sol=_float("SWING_ROLLING_LOSS_HALT_SOL", 3.0),
+            swing_loss_halt_lookback=_int("SWING_LOSS_HALT_LOOKBACK", 20),
             go_live_min_trades=_int("GO_LIVE_MIN_TRADES", 100),
             go_live_min_profit_factor=_float("GO_LIVE_MIN_PROFIT_FACTOR", 1.3),
             gbm_shadow_model_path=_str("GBM_SHADOW_MODEL_PATH", ""),

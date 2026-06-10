@@ -31,6 +31,11 @@ class SwingRunner:
             window=settings.swing_window, dip_k=settings.swing_dip_k, exit_k=settings.swing_exit_k,
             fee_pct=settings.swing_fee_pct, size_sol=settings.swing_size_sol,
             max_positions=settings.swing_max_positions, max_hold_bars=settings.swing_max_hold_bars,
+            stop_k=settings.swing_stop_k, slippage_bps=settings.swing_slippage_bps,
+            regime_window=settings.swing_regime_window, regime_tol=settings.swing_regime_tol,
+            max_total_exposure_sol=settings.swing_max_total_exposure_sol,
+            rolling_loss_halt_sol=settings.swing_rolling_loss_halt_sol,
+            loss_halt_lookback=settings.swing_loss_halt_lookback,
         )
         self.engine = SwingEngine(self.p, initial_sol=settings.swing_initial_sol)
         self.universe: dict[str, str] = {}
@@ -70,14 +75,21 @@ class SwingRunner:
             bars = await client.chart(mint, self.s.swing_interval)
             if len(bars) < self.p.window + 1:
                 continue
-            closes = [float(b["close"]) for b in bars]
+            closes_all = [float(b["close"]) for b in bars]
             ts = float(bars[-1].get("time", 0.0))
-            price_map[mint] = closes[-1]
-            # only advance per-candle bookkeeping (bars_held / time-stop) when a NEW bar has closed
+            price_map[mint] = closes_all[-1]                  # mark-to-market every poll (forming bar ok for equity)
+            # Decide EXACTLY ONCE per CLOSED candle: act only when a new bar has appeared (the previous one
+            # just closed), and decide on the CLOSED series (drop the still-forming last bar). This stops
+            # entries/exits repainting intra-bar and makes bars_held count BARS, not 30-min polls — matching
+            # the backtest's one-decision-per-closed-bar contract. (Prior `if True` stepped every poll: a
+            # max_hold_bars time-stop fired ~8x early and entries fired on transient mid-candle prints.)
             new_bar = ts > self._last_bar.get(mint, 0.0)
-            res = self.engine.step(mint, sym, closes, ts) if True else None
+            res = None
             if new_bar:
                 self._last_bar[mint] = ts
+                closed = closes_all[:-1]
+                if len(closed) >= self.p.window:
+                    res = self.engine.step(mint, sym, closed, float(bars[-2].get("time", ts)))
             if res:
                 kind, obj = res
                 if kind == "enter":
@@ -103,7 +115,8 @@ class SwingRunner:
         data = {k: v for k, v in data.items() if v and len(v) > 100}
         if not data:
             return
-        rows = await asyncio.to_thread(run_discovery, data, max(self.s.swing_fee_pct, 0.02), 2.0, 0.7)
+        rows = await asyncio.to_thread(run_discovery, data, max(self.s.swing_fee_pct, 0.02), 2.0, 0.7,
+                                       self.s.swing_slippage_bps)
         passed = [(g, name, r) for g, name, r, p in rows if p]
         try:
             json.dump({"validated": [{"name": n, "test_gmean": round(g, 3),

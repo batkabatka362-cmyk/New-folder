@@ -81,24 +81,30 @@ def _sma(xs, i, n):
     return sum(xs[i - n + 1:i + 1]) / n
 
 
-def _simulate(bars, decide, fee, warmup, clip=3.0):
+def _simulate(bars, decide, fee, warmup, clip=3.0, stop_k=0.0, slippage_bps=0.0):
     """Stateful, no-look-ahead sim: at bar i (data through i known) `decide(closes,highs,lows,i,pos)`
     returns the position 0/1 to HOLD over i->i+1. Equity compounds the realized bar return; a flat
-    `fee` round-trip is split half on each position change. Returns (equity_mult, n_trades, n_win,
-    trade_rets)."""
+    `fee` round-trip is split half on each position change, plus `slippage_bps` per SIDE (the live
+    engine's fill haircut — honest dip-buy cost). `stop_k`>0 mirrors the engine's hard stop: force-exit
+    if price falls >= stop_k below the ENTRY price. Returns (equity_mult, n_trades, n_win, trade_rets)."""
+    _side_cost = (1.0 - fee / 2.0) * (1.0 - slippage_bps / 10000.0)   # fee + slippage per position change
     closes = [float(b["close"]) for b in bars]
     highs = [float(b.get("high", b["close"])) for b in bars]
     lows = [float(b.get("low", b["close"])) for b in bars]
     eq, pos, n_trades = 1.0, 0, 0
     entry_eq = None
+    entry_price = 0.0
     trade_rets = []
     for i in range(warmup, len(closes) - 1):
         new = decide(closes, highs, lows, i, pos)
+        if pos == 1 and stop_k > 0 and entry_price > 0 and (entry_price - closes[i]) / entry_price >= stop_k:
+            new = 0                                # hard stop overrides the strategy's hold (matches engine)
         if new != pos:
-            eq *= (1.0 - fee / 2.0)                # transition cost
+            eq *= _side_cost                       # transition cost = fee/2 + slippage, per side
             if new == 1:
                 n_trades += 1
                 entry_eq = eq
+                entry_price = closes[i]
             elif pos == 1 and entry_eq:
                 trade_rets.append(eq / entry_eq - 1.0)
             pos = new
@@ -109,7 +115,7 @@ def _simulate(bars, decide, fee, warmup, clip=3.0):
             r = closes[i + 1] / closes[i]
             eq *= max(1.0 / clip, min(clip, r))
     if pos == 1 and entry_eq:                       # close the open trade at the end
-        eq *= (1.0 - fee / 2.0)
+        eq *= _side_cost
         trade_rets.append(eq / entry_eq - 1.0)
     n_win = sum(1 for r in trade_rets if r > 0)
     return eq, n_trades, n_win, trade_rets
@@ -141,12 +147,19 @@ def donchian(n=48, m=24):
     return d
 
 
-def mean_rev(window=24, k=0.12):
+def mean_rev(window=24, k=0.12, regime_window=0, regime_tol=0.0):
+    """Mean-reversion: buy < SMA*(1-k), sell on reversion above SMA. Optional REGIME GATE: if
+    regime_window>0, skip the dip-buy when price is more than regime_tol below the LONG SMA (a structural
+    downtrend — don't catch a falling knife). regime_tol=0 => only buy dips at/above the long average."""
     def d(c, h, l, i, pos):
         sma = _sma(c, i, window)
         if sma is None:
             return pos
         if pos == 0 and c[i] < sma * (1 - k):
+            if regime_window > 0:
+                ls = _sma(c, i, regime_window)
+                if ls is not None and ls > 0 and c[i] < ls * (1 - regime_tol):
+                    return 0                                # structural downtrend -> skip the dip
             return 1
         if pos == 1 and c[i] > sma:
             return 0
@@ -169,6 +182,8 @@ def main() -> None:
     ap.add_argument("--type", default="1h", help="candle interval (1h/4h/1d)")
     ap.add_argument("--clip", type=float, default=3.0, help="per-bar glitch clip (a real bar rarely exceeds this x); tighten to stress-test")
     ap.add_argument("--sweep", action="store_true", help="param-robustness sweep of mean-reversion (window x k) — overfit check")
+    ap.add_argument("--stop", type=float, default=0.0, help="hard stop-loss frac below entry (0=off); applied to the active strategies, not buy_hold")
+    ap.add_argument("--slippage", type=float, default=0.0, help="per-side slippage bps (honest dip-buy fill cost)")
     args = ap.parse_args()
     s = get_settings()
     if not (s.solanatracker_enabled and s.solanatracker_api_key):
@@ -204,15 +219,18 @@ def main() -> None:
         "buy_hold": (buy_hold, 0),
         "ma_cross_12_48": (ma_cross(12, 48), 48),
         "donchian_48_24": (donchian(48, 24), 48),
-        "mean_rev_24": (mean_rev(24, 0.12), 24),
+        "mean_rev_24_18": (mean_rev(24, 0.18), 24),    # the live default (WL17/WL19 best OOS config)
     }
-    print(f"=== SWING FEASIBILITY ({args.type}, fee {args.fee*100:.1f}% round-trip, {len(data)} tokens) ===")
-    print(f"  {'strategy':16} {'gmean_x':>8} {'mean_x':>7} {'>hold':>6} {'trades':>7} {'win%':>5}")
+    print(f"=== SWING FEASIBILITY ({args.type}, fee {args.fee*100:.1f}% round-trip, stop {args.stop*100:.0f}%, "
+          f"{len(data)} tokens) ===")
+    print(f"  {'strategy':16} {'gmean_x':>8} {'mean_x':>7} {'worst':>6} {'>hold':>6} {'trades':>7} {'win%':>5}")
     hold_mult = {}
     for name, (fn, wu) in strategies.items():
+        st = 0.0 if name == "buy_hold" else args.stop      # the stop applies to active strategies, not hold
         mults, trades, wins, beat = [], 0, 0, 0
         for sym, bars in data.items():
-            eq, nt, nw, _ = _simulate(bars, fn, args.fee, wu, clip=args.clip)
+            eq, nt, nw, _ = _simulate(bars, fn, args.fee, wu, clip=args.clip, stop_k=st,
+                                      slippage_bps=args.slippage)
             mults.append(eq)
             trades += nt
             wins += nw
@@ -223,7 +241,7 @@ def main() -> None:
         gm, mm = _gmean(mults), sum(mults) / len(mults)
         wr = (wins / trades * 100) if trades else 0.0
         bh = f"{beat}/{len(data)}" if name != "buy_hold" else "—"
-        print(f"  {name:16} {gm:>8.2f} {mm:>7.2f} {bh:>6} {trades:>7} {wr:>5.0f}")
+        print(f"  {name:16} {gm:>8.2f} {mm:>7.2f} {min(mults):>6.2f} {bh:>6} {trades:>7} {wr:>5.0f}")
     print("\n  gmean_x = geometric-mean equity multiple across tokens (1.0 = flat). '>hold' = tokens where the\n"
           "  strategy BEAT buy-and-hold. VERDICT: an active strategy is only worth building if it BEATS hold\n"
           "  on most tokens net of fees; if not, the swing edge isn't there either (back to loss-min reality).")
