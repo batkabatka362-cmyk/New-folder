@@ -1,0 +1,52 @@
+"""The swing universe — established, currently-liquid Solana memecoins to mean-revert.
+
+v1 is a curated list of liquid survivors (the WL17 backtest set, minus the faded stress-test names that
+were only there to prove survivorship-robustness — we do NOT want to live-trade tokens that are bleeding to
+zero). A per-token liquidity sanity check (Solana Tracker) prunes any that have since gone illiquid, so a
+faded name silently drops out instead of being dip-bought into oblivion. A fully dynamic top-by-liquidity
+universe is the v2 upgrade; for forward-testing the edge a vetted list is honest and safe.
+"""
+from __future__ import annotations
+
+from ..utils.logging import get_logger
+
+log = get_logger("swing.universe")
+
+# Currently-liquid, established Solana memecoins (mints verified against the Solana Tracker /chart API).
+DEFAULT_UNIVERSE = {
+    "BONK": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+    "WIF": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+    "POPCAT": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
+    "MEW": "MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5",
+    "GIGA": "63LfDmNb3MQ8mw9MtZ2To9bEA2M71kZUUGq5tiJxcqj9",
+    "PNUT": "2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump",
+    "FARTCOIN": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
+    "TRUMP": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+}
+
+
+async def liquid_universe(client, base: dict | None = None, min_liquidity_usd: float = 50_000.0) -> dict:
+    """Prune the curated universe to tokens whose current pool liquidity clears `min_liquidity_usd`
+    (so a faded name that's gone illiquid drops out). Uses the Solana Tracker /tokens risk endpoint's
+    pool data; on any error keeps the token (fail-open — a data hiccup must not empty the universe).
+    Returns {symbol: mint}."""
+    base = base or DEFAULT_UNIVERSE
+    if client is None:
+        return dict(base)
+    kept = {}
+    for sym, mint in base.items():
+        try:
+            r = await client._client.get(f"{client.base_url}/tokens/{mint}")
+            liq = None
+            if r.status_code == 200:
+                pools = r.json().get("pools") or []
+                if pools and isinstance(pools[0], dict):
+                    liq = (pools[0].get("liquidity") or {}).get("usd")
+            if liq is None or float(liq) >= min_liquidity_usd:
+                kept[sym] = mint
+            else:
+                log.info("swing universe: dropping %s (liquidity $%.0f < $%.0f)", sym, float(liq), min_liquidity_usd)
+        except Exception as e:  # noqa: BLE001 — fail-open: keep the token if the check errors
+            log.debug("liquidity check failed for %s: %s", sym, type(e).__name__)
+            kept[sym] = mint
+    return kept

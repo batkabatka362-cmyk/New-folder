@@ -337,6 +337,18 @@ class Settings:
     # genuinely better model — which is correct, not a bug.
     retrain_loop_enabled: bool = True
     retrain_loop_interval_s: float = 86400.0  # how often to retrain (daily; fully off the hot path). 0 disables.
+    # WL18 SWING mode (a SEPARATE paper system: `python -m memebot.swing`) — mean-reversion on established
+    # liquid memecoins, the WL17 net-positive edge. Defaults are the backtest-validated params; PAPER-ONLY.
+    swing_initial_sol: float = 10.0
+    swing_window: int = 24                    # SMA window (in candles); WL17 best at 12-24
+    swing_dip_k: float = 0.18                 # enter when price < SMA*(1-dip_k); deeper dips score stronger
+    swing_exit_k: float = 0.0                 # exit when price > SMA*(1+exit_k)
+    swing_fee_pct: float = 0.01               # round-trip liquid-pair fee (split half/half per side)
+    swing_size_sol: float = 1.0               # SOL per entry
+    swing_max_positions: int = 5
+    swing_max_hold_bars: int = 0              # 0 = no time stop; else force-exit after N bars (regime guard)
+    swing_interval: str = "4h"                # candle interval for the signal (Solana Tracker /chart type)
+    swing_scan_interval_s: float = 1800.0     # how often the runner polls the universe (30 min)
     # GO-LIVE GATE (advisory — `python -m memebot.readiness`): the explicit, auditable criteria that must
     # ALL hold on the HONEST (CLEAN, glitch-excluded) realized book before real money is even considered.
     # A single lucky AUC can't satisfy this; it's the durable-PnL gate. NEVER auto-flips live mode.
@@ -626,6 +638,16 @@ class Settings:
             gbm_balance_classes=_bool("GBM_BALANCE_CLASSES", True),
             retrain_loop_enabled=_bool("RETRAIN_LOOP_ENABLED", True),
             retrain_loop_interval_s=_float("RETRAIN_LOOP_INTERVAL_S", 86400.0),
+            swing_initial_sol=_float("SWING_INITIAL_SOL", 10.0),        # WL18 swing mode (separate paper system)
+            swing_window=_int("SWING_WINDOW", 24),
+            swing_dip_k=_float("SWING_DIP_K", 0.18),
+            swing_exit_k=_float("SWING_EXIT_K", 0.0),
+            swing_fee_pct=_float("SWING_FEE_PCT", 0.01),
+            swing_size_sol=_float("SWING_SIZE_SOL", 1.0),
+            swing_max_positions=_int("SWING_MAX_POSITIONS", 5),
+            swing_max_hold_bars=_int("SWING_MAX_HOLD_BARS", 0),
+            swing_interval=_str("SWING_INTERVAL", "4h"),
+            swing_scan_interval_s=_float("SWING_SCAN_INTERVAL_S", 1800.0),
             go_live_min_trades=_int("GO_LIVE_MIN_TRADES", 100),
             go_live_min_profit_factor=_float("GO_LIVE_MIN_PROFIT_FACTOR", 1.3),
             gbm_shadow_model_path=_str("GBM_SHADOW_MODEL_PATH", ""),

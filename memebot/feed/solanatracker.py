@@ -65,6 +65,21 @@ class SolanaTrackerClient:
             log.debug("solanatracker risk failed: %s", type(e).__name__)  # NEVER strangle the bot
             return None
 
+    async def chart(self, mint: str, interval: str = "4h") -> list[dict]:
+        """OHLCV bars for a token (WL18 swing mode): GET /chart/{mint}?type={interval} -> list of
+        {open,high,low,close,volume,time}. Empty list on any failure (caller treats empty as 'skip')."""
+        if self._client is None or not self.api_key or not mint:
+            return []
+        try:
+            r = await self._client.get(f"{self.base_url}/chart/{mint}?type={interval}")
+            if r.status_code != 200:
+                return []
+            bars = r.json().get("oclhv", [])
+            return [b for b in bars if isinstance(b, dict) and b.get("close")]
+        except Exception as e:  # noqa: BLE001
+            log.debug("solanatracker chart failed: %s", type(e).__name__)
+            return []
+
     @staticmethod
     def _parse(data) -> dict | None:
         """Defensive parse of the /tokens/{mint} `risk` object — tolerant of schema drift. None when

@@ -32,5 +32,7 @@ gbm_model.txt.*
 *_diff.txt
 # WL17 swing_lab OHLCV cache (re-fetchable from the Solana Tracker /chart endpoint)
 swing_cache.json
+# WL18 swing forward-test paper state (regenerates as it runs)
+swing_state.json
 # supervisor diagnostic capture
 sup_diag*.log
