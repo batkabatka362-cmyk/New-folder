@@ -14,8 +14,15 @@ from .portfolio.portfolio import ExitParams   # exit rules live with Position; n
 
 try:
     from dotenv import load_dotenv
+    from pathlib import Path as _Path
 
-    load_dotenv()
+    # BUGFIX: load the repo-root .env by ABSOLUTE path, not the cwd. `load_dotenv()` with no args walks up
+    # from the current working directory — and when the supervisor spawns `python -m memebot`, the child's
+    # cwd is NOT guaranteed to be the repo, so the .env (and every override in it: BUYER_INTEL/IMAGE_SCAM/
+    # the banded-funnel knobs) was silently NOT loaded and all those features ran at their OFF defaults.
+    # Anchoring to this file's location (repo/memebot/config.py -> repo/.env) makes it cwd-independent.
+    _ENV = _Path(__file__).resolve().parent.parent / ".env"
+    load_dotenv(_ENV if _ENV.exists() else None)
 except ImportError:  # dotenv is optional at runtime
     pass
 
