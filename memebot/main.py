@@ -1320,14 +1320,11 @@ class Bot:
     async def _retrain_loop(self) -> None:
         """A1 autonomous self-improvement: periodically retrain the GBM from accrued in-distribution data
         and DEPLOY it ONLY through retrain.run_once's safe AUC-floor + precision-over-base gate (never a
-        worse model; effective on next restart). Off the hot path (a worker thread). Self-disables if
-        lightgbm isn't installed. A retrain failure must NEVER touch the live scorer or kill the bot."""
-        try:
-            import lightgbm  # noqa: F401
-        except ImportError:
-            log.info("retrain loop: lightgbm not installed — disabled.")
-            return
-        from .backtest.retrain import run_once
+        worse model; effective on next restart). Off the hot path (a worker thread). A retrain failure
+        must NEVER touch the live scorer or kill the bot. (lightgbm availability is checked at task-wiring
+        time — this loop is only created when it's importable — because a loop that RETURNS is treated by
+        the task supervisor as a crash, which would take the whole bot down.)"""
+        from .backtest.retrain import run_once   # stdlib+package imports only; lightgbm is lazy inside _train
         while True:
             await asyncio.sleep(self.s.retrain_loop_interval_s)
             try:
@@ -1634,7 +1631,13 @@ class Bot:
                 tasks.append(asyncio.create_task(self._calibrate_loop(), name="calibrate"))
             if self.s.retrain_loop_enabled and self.s.retrain_loop_interval_s > 0:
                 # A1: autonomous GBM retrain + safe-gate deploy (self-improvement). Off the hot path.
-                tasks.append(asyncio.create_task(self._retrain_loop(), name="retrain"))
+                # Only create the task if lightgbm is importable — a task that returns is treated as a
+                # crash and would take the whole bot down, so we gate at wiring rather than inside the loop.
+                import importlib.util
+                if importlib.util.find_spec("lightgbm") is not None:
+                    tasks.append(asyncio.create_task(self._retrain_loop(), name="retrain"))
+                else:
+                    log.info("retrain loop disabled (lightgbm not installed)")
             if self.commands.enabled:
                 tasks.append(asyncio.create_task(self.commands.run(), name="commands"))
             if self.s.archive_interval_s > 0 and self.archiver.available():
