@@ -133,6 +133,30 @@ def test_runner_first_sighting_then_steps_once():
     assert bh_b == bh_d                                             # re-poll did NOT double-step
 
 
+def test_promote_self_improvement():
+    """WL25: a challenger that beats live by the margin for streak_needed CONSECUTIVE runs is promoted;
+    a within-margin challenger or a non-mean-reversion (Bollinger) winner is NOT."""
+    from memebot.swing.promote import decide_promotion, parse_meanrev, live_name
+    assert parse_meanrev("meanrev w24 k0.18") == {"window": 24, "dip_k": 0.18}
+    assert parse_meanrev("bolling w24 k2.5") is None
+    assert live_name(24, 0.18) == "meanrev w24 k0.18"
+    rows = [
+        (2.00, "bolling w24 k2.5", {}, True),          # highest gmean but NOT mean-rev -> ineligible
+        (1.80, "meanrev w12 k0.25", {}, True),         # beats live 1.50 by 20% (> 15% margin)
+        (1.50, "meanrev w24 k0.18", {}, True),         # the live config
+    ]
+    s = {}
+    for run in (1, 2):
+        p, s, _ = decide_promotion(rows, 24, 0.18, s, margin=0.15, streak_needed=3)
+        assert p is None and s == {"meanrev w12 k0.25": run}     # streak builds, no promotion yet
+    p, s, note = decide_promotion(rows, 24, 0.18, s, margin=0.15, streak_needed=3)
+    assert p == {"window": 12, "dip_k": 0.25} and "PROMOTE" in note   # 3rd consecutive win -> promote
+    # a challenger that does NOT clear the margin -> hold, no streak
+    close = [(1.55, "meanrev w12 k0.25", {}, True), (1.50, "meanrev w24 k0.18", {}, True)]
+    p2, s2, _ = decide_promotion(close, 24, 0.18, {}, margin=0.15, streak_needed=3)
+    assert p2 is None and s2 == {}
+
+
 def test_geckoterminal_chart_parse():
     """WL23: GeckoTerminal ohlcv_list ([ts,o,h,l,c,v], newest-first) -> the engine's ascending dict bars."""
     import asyncio

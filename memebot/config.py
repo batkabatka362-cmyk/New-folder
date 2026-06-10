@@ -397,6 +397,12 @@ class Settings:
     # force the ST /chart instead. swing_poll_sleep_s spaces per-token calls under the GeckoTerminal limit.
     swing_ohlcv_source: str = "geckoterminal"   # geckoterminal | solanatracker
     swing_poll_sleep_s: float = 2.1             # sleep between per-token OHLCV calls (>= 2s keeps GT under 30/min)
+    # WL25 self-improvement: let the discovery loop PROMOTE a better mean-reversion config to live, but only
+    # if it beats the live config's OOS gmean by a margin for several CONSECUTIVE runs (writes
+    # swing_live_params.json, loaded on next start; paper-only + reversible by deleting the file).
+    swing_promote_enabled: bool = True
+    swing_promote_margin: float = 0.15          # challenger must beat live OOS gmean by >= this fraction
+    swing_promote_streak: int = 3               # for this many consecutive weekly discovery runs
     # GO-LIVE GATE (advisory — `python -m memebot.readiness`): the explicit, auditable criteria that must
     # ALL hold on the HONEST (CLEAN, glitch-excluded) realized book before real money is even considered.
     # A single lucky AUC can't satisfy this; it's the durable-PnL gate. NEVER auto-flips live mode.
@@ -723,6 +729,9 @@ class Settings:
             swing_min_liquidity_usd=_float("SWING_MIN_LIQUIDITY_USD", 50_000.0),
             swing_ohlcv_source=_str("SWING_OHLCV_SOURCE", "geckoterminal"),
             swing_poll_sleep_s=_float("SWING_POLL_SLEEP_S", 2.1),
+            swing_promote_enabled=_bool("SWING_PROMOTE_ENABLED", True),
+            swing_promote_margin=_float("SWING_PROMOTE_MARGIN", 0.15),
+            swing_promote_streak=_int("SWING_PROMOTE_STREAK", 3),
             go_live_min_trades=_int("GO_LIVE_MIN_TRADES", 100),
             go_live_min_profit_factor=_float("GO_LIVE_MIN_PROFIT_FACTOR", 1.3),
             gbm_shadow_model_path=_str("GBM_SHADOW_MODEL_PATH", ""),

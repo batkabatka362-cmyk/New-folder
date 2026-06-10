@@ -40,3 +40,4 @@ swing_strategies.json
 sup_diag*.log
 swing*.log
 *.lock
+swing_live_params.json

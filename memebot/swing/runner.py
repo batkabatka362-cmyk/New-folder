@@ -20,18 +20,37 @@ from ..feed.geckoterminal import GeckoTerminalClient
 from ..feed.solanatracker import SolanaTrackerClient
 from ..utils.logging import get_logger
 from .engine import SwingClosed, SwingEngine, SwingParams, SwingPosition
+from .promote import decide_promotion
 from .universe import liquid_universe
 
 log = get_logger("swing.runner")
 _STATE = "swing_state.json"
+_LIVE_PARAMS = "swing_live_params.json"   # WL25: a promoted config overrides the .env window/dip_k here
 _REPLAY_CAP = 50          # max closed bars to replay after a poll gap (bounds a long-outage catch-up)
+
+
+def _load_live_params() -> dict:
+    """A self-improvement PROMOTION (swing_live_params.json) overrides the .env window/dip_k. Empty/absent
+    -> use the config defaults. Delete the file to revert to the .env config."""
+    if not os.path.exists(_LIVE_PARAMS):
+        return {}
+    try:
+        d = json.load(open(_LIVE_PARAMS))
+        return {"window": int(d["window"]), "dip_k": float(d["dip_k"])} if "window" in d and "dip_k" in d else {}
+    except (ValueError, OSError, KeyError, TypeError):
+        return {}
 
 
 class SwingRunner:
     def __init__(self, settings) -> None:
         self.s = settings
+        live = _load_live_params()                 # a promoted config (if any) overrides the .env strategy params
+        if live:
+            log.info("swing: using PROMOTED params from %s (window=%d dip_k=%.2f) — delete the file to revert",
+                     _LIVE_PARAMS, live["window"], live["dip_k"])
         self.p = SwingParams(
-            window=settings.swing_window, dip_k=settings.swing_dip_k, exit_k=settings.swing_exit_k,
+            window=live.get("window", settings.swing_window), dip_k=live.get("dip_k", settings.swing_dip_k),
+            exit_k=settings.swing_exit_k,
             fee_pct=settings.swing_fee_pct, size_sol=settings.swing_size_sol,
             max_positions=settings.swing_max_positions, max_hold_bars=settings.swing_max_hold_bars,
             stop_k=settings.swing_stop_k, slippage_bps=settings.swing_slippage_bps,
@@ -44,6 +63,7 @@ class SwingRunner:
         self.universe: dict[str, str] = {}
         self._last_bar: dict[str, float] = {}      # mint -> last bar time stepped (per-candle bookkeeping)
         self._last_discover = 0.0                  # last autonomous strategy-discovery run (epoch s)
+        self._promote_streak: dict = {}            # WL25: challenger -> consecutive winning discovery runs
 
     # ---- state persistence (so the forward test survives restarts) -----------------------------------
     def _save(self) -> None:
@@ -55,6 +75,7 @@ class SwingRunner:
                 "closed": [vars(c) for c in self.engine.closed],
                 "last_bar": self._last_bar,
                 "last_discover": self._last_discover,       # don't re-fire discovery on every restart
+                "promote_streak": self._promote_streak,     # WL25 self-improvement persistence
             }
             json.dump(state, open(_STATE, "w"))
         except OSError as e:
@@ -73,6 +94,7 @@ class SwingRunner:
         self.engine.closed = [SwingClosed(**c) for c in st.get("closed", [])]
         self._last_bar = {k: float(v) for k, v in st.get("last_bar", {}).items()}
         self._last_discover = float(st.get("last_discover", 0.0))
+        self._promote_streak = dict(st.get("promote_streak", {}))
         log.info("swing: resumed state (cash=%.3f, open=%d, closed=%d)",
                  self.engine.cash, len(self.engine.positions), len(self.engine.closed))
 
@@ -139,10 +161,24 @@ class SwingRunner:
         if passed:
             g, name, _ = passed[0]
             log.info("swing discovery | %d/%d strategies OOS-validated | best: %s (test_gmean %.2f) "
-                     "| live: SMA%d dip%.0f%% (advisory — live params unchanged)",
+                     "| live: SMA%d dip%.0f%%",
                      len(passed), len(rows), name, g, self.s.swing_window, self.s.swing_dip_k * 100)
         else:
             log.info("swing discovery | 0/%d strategies passed the walk-forward gate this run", len(rows))
+        # WL25 SELF-IMPROVEMENT: promote a challenger that beats live by a margin for enough consecutive runs.
+        new_params, self._promote_streak, note = decide_promotion(
+            rows, self.s.swing_window, self.s.swing_dip_k, self._promote_streak,
+            margin=self.s.swing_promote_margin, streak_needed=self.s.swing_promote_streak)
+        if new_params and self.s.swing_promote_enabled:
+            try:
+                json.dump(new_params, open(_LIVE_PARAMS, "w"))
+                log.warning("swing SELF-IMPROVE: %s -> wrote %s (effective on next restart; delete to revert)",
+                            note, _LIVE_PARAMS)
+            except OSError:
+                pass
+        else:
+            log.info("swing promotion: %s", note)
+        self._save()
 
     async def run(self) -> None:
         use_gt = self.s.swing_ohlcv_source == "geckoterminal"
