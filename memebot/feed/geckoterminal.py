@@ -13,12 +13,16 @@ Defensive: any failure returns [] (the runner treats empty as 'skip this token t
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 
 import httpx
 
 from ..utils.logging import get_logger
 
 log = get_logger("feed.geckoterminal")
+_POOL_CACHE = "swing_pools.json"   # resolved token->pool map, persisted so a transient 429 self-heals + the
+#                                    pre-warm becomes instant once every pool has been resolved at least once.
 
 # our interval -> (GeckoTerminal timeframe, aggregate)
 _TF = {"1h": ("hour", 1), "4h": ("hour", 4), "1d": ("day", 1), "15m": ("minute", 15), "1m": ("minute", 1)}
@@ -34,7 +38,18 @@ class GeckoTerminalClient:
     async def __aenter__(self) -> "GeckoTerminalClient":
         self._client = httpx.AsyncClient(timeout=self.timeout, trust_env=False,
                                          headers={"accept": "application/json"})
+        try:                                        # warm the pool cache from disk (survives restarts)
+            if os.path.exists(_POOL_CACHE):
+                self._pool = {str(k): str(v) for k, v in json.load(open(_POOL_CACHE)).items()}
+        except (ValueError, OSError):
+            self._pool = {}
         return self
+
+    def _save_pools(self) -> None:
+        try:
+            json.dump(self._pool, open(_POOL_CACHE, "w"))
+        except OSError:
+            pass
 
     async def __aexit__(self, *exc) -> None:
         if self._client is not None:
@@ -75,6 +90,7 @@ class GeckoTerminalClient:
             addr = (data[0].get("attributes") or {}).get("address")
             if addr:
                 self._pool[mint] = addr
+                self._save_pools()                  # persist so this pool never needs re-resolving
             return addr
         except Exception as e:  # noqa: BLE001
             log.debug("geckoterminal pool_for parse failed: %s", type(e).__name__)

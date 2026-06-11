@@ -41,3 +41,4 @@ sup_diag*.log
 swing*.log
 *.lock
 swing_live_params.json
+swing_pools.json
