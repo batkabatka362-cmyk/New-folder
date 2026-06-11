@@ -45,6 +45,13 @@ BASKET = {
     "MUMU": "5LafQUrVco6o7KMz42eqVEJ9LW31StPyGjeeu5sKoMtA",
     "HARAMBE": "Fch1oixTPri8zxBnmdCEADoJW2toyFHxqDZacQkwdvSP",
     "CHILLGUY": "Df6yfrKC8kZE3KNkrHERKzAetSxbrWeniQfyJY4Jpump",
+    # WL29: more verified currently-liquid established names -> a bigger (21-token), more diverse OOS sample.
+    "GOAT": "CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump",
+    "PENGU": "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv",
+    "ZEREBRO": "8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn",
+    "ARC": "61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump",
+    "GRASS": "Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs",
+    "SPX": "J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr",
 }
 _CACHE = "swing_cache.json"
 
