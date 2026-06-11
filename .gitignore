@@ -42,3 +42,6 @@ swing*.log
 *.lock
 swing_live_params.json
 swing_pools.json
+# run-on-logon autonomy launchers (machine-specific absolute paths + username; regenerable, not VCS)
+autostart_*.bat
+autostart_*.vbs
