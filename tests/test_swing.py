@@ -306,3 +306,25 @@ def test_runner_manages_held_not_in_universe():
             return bars
     asyncio.run(r._scan_once(FakeClient()))
     assert r.engine.positions["M"].bars_held == 1                  # managed (stepped) despite not in universe
+
+
+def test_swing_universe_discovery_filters():
+    """WL33 candidate filter (pure): keep only NEW, established, single-mint memecoins — drop the existing
+    universe, stables/blue-chips, copy-spam (a symbol on >1 mint), thin liquidity, and too-fresh pools."""
+    from memebot.swing.discover_universe import _rank_candidates, _age_days, _EXCLUDE
+    from memebot.swing.universe import DEFAULT_UNIVERSE
+    bonk = DEFAULT_UNIVERSE["BONK"]
+    rows = [
+        {"symbol": "BAR", "mint": "barmint", "liq": 500_000, "age": 200},     # established memecoin -> KEEP
+        {"symbol": "FOO", "mint": "foo1", "liq": 900_000, "age": 300},         # copy-spam: same symbol,
+        {"symbol": "FOO", "mint": "foo2", "liq": 800_000, "age": 300},         #   two mints -> BOTH dropped
+        {"symbol": "USDC", "mint": "usdcmint", "liq": 9_000_000, "age": 999},  # stable -> drop
+        {"symbol": "FRESH", "mint": "freshmint", "liq": 600_000, "age": 5},    # too young -> drop
+        {"symbol": "SMALL", "mint": "smallmint", "liq": 50_000, "age": 300},   # below min_liq -> drop
+        {"symbol": "BONK", "mint": bonk, "liq": 700_000, "age": 999},          # already in universe -> drop
+    ]
+    out = _rank_candidates(rows, min_liq=250_000, top=10, min_age_days=90)
+    assert [c["symbol"] for c in out] == ["BAR"]
+    assert "USDC" in _EXCLUDE and "HYPE" in _EXCLUDE                            # stables + non-memecoins listed
+    assert _age_days(None) is None and _age_days("garbage") is None
+    assert _age_days("2020-01-01T00:00:00Z") > 1000                            # years old -> large positive age
