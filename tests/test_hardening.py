@@ -1114,3 +1114,15 @@ def test_rate_limiter_releases_lock_during_backoff():
     asyncio.run(run())
     assert locked_during_sleep == [False]               # backed off exactly once, lock RELEASED during it
     assert rl.tokens < 1.0                              # the third acquire drained the just-refilled token
+
+
+def test_image_probe_pure_helpers():
+    """WL32 probe parsing: read a vision reply whether it's clean JSON, JSON wrapped in chatter, or junk;
+    classify mints vs image URLs. (The probe is network/Ollama-driven; only the pure logic is unit-tested.)"""
+    from memebot.backtest.image_probe import _extract_obj, _looks_like_url
+    assert _extract_obj('{"impersonation": true}') == {"impersonation": True}
+    assert _extract_obj('sure! {"bait": false} done') == {"bait": False}   # chatty wrapper
+    assert _extract_obj("no json here") is None
+    assert _extract_obj("") is None
+    assert _looks_like_url("https://x/y.png") and _looks_like_url("ipfs://abc")
+    assert not _looks_like_url("DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263")   # a mint, not a URL
