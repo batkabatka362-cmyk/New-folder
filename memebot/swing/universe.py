@@ -30,6 +30,17 @@ DEFAULT_UNIVERSE = {
     "ARC": "61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump",
     "GRASS": "Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs",
     "SPX": "J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr",
+    # WL30: 8 more verified currently-liquid established names (all >$280K LP, 2000 4h bars) to ACCELERATE
+    # the forward-proof — the selective ~18% dip fires rarely, so 22 tokens ~= 1.5x the entry opportunities
+    # of 14. The runtime liquid_universe prune + the chart-empty skip drop any that later go illiquid/dead.
+    "MOODENG": "ED5nyyWEzpPPiWimP8vYm7sD7TD3LAt3Q3gRTWHzPJBY",
+    "RETARDIO": "6ogzHhzdrQr9Pgv6hZ2MNze7UrzBMAFyBBWUYp1Fhitx",
+    "BILLY": "3B5wuUrMEi5yATD7on46hKfej3pfmd7t1RKgrsN3pump",
+    "MANEKI": "25hAyBQfoDhfWx9ay6rarbgvWGwDdNqcHsXS3jQ3mTDJ",
+    "DADDY": "4Cnk9EPnW5ixfLZatCPJjDB1PUtcRpVVgTQukm9epump",
+    "VINE": "6AJcP7wuLwmRYLBNbi825wgguaPsWzPBEHcHndpRpump",
+    "GME": "8wXtPeU6557ETkp9WHFY1n1EcU6NxDvbAggHGsMYiHsB",
+    "CHILLHOUSE": "DitHyRMQiSDhn5cnKMJV2CDDt6sVct96YrECiM49pump",
 }
 
 

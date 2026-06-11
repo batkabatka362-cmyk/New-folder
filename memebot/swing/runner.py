@@ -208,6 +208,22 @@ class SwingRunner:
             log.info("swing promotion: %s", note)
         self._save()
 
+    async def _prewarm_pools(self, client) -> None:
+        """GeckoTerminal needs a pool address per token (one extra call). Resolve them ALL once at startup,
+        spaced under the ~30/min limit, so the per-scan chart() is a single OHLCV call — the first scan
+        then never bursts 2 calls/token (pool_for + ohlcv) over the rate limit. No-op for non-GT clients."""
+        if not hasattr(client, "pool_for"):
+            return
+        n = 0
+        for mint in list(self.universe.values()):
+            try:
+                if await client.pool_for(mint):
+                    n += 1
+            except Exception:  # noqa: BLE001 — a warm-up miss just means that token resolves on its first scan
+                pass
+            await asyncio.sleep(self.s.swing_poll_sleep_s)
+        log.info("swing: pre-warmed %d/%d GeckoTerminal pools", n, len(self.universe))
+
     async def run(self) -> None:
         use_gt = self.s.swing_ohlcv_source == "geckoterminal"
         st_ok = self.s.solanatracker_enabled and bool(self.s.solanatracker_api_key)
@@ -225,6 +241,7 @@ class SwingRunner:
                     SolanaTrackerClient(self.s.solanatracker_api_key, self.s.solanatracker_base_url))
             chart_client = await stack.enter_async_context(GeckoTerminalClient()) if use_gt else st
             self.universe = await liquid_universe(st, min_liquidity_usd=self.s.swing_min_liquidity_usd)
+            await self._prewarm_pools(chart_client)        # resolve GeckoTerminal pools ONCE (spaced) so the
             log.info("swing mode LIVE (paper) | %d tokens | %s bars | OHLCV=%s | SMA%d dip%.0f%% | size %.2f SOL | scan %.0fs",
                      len(self.universe), self.s.swing_interval, self.s.swing_ohlcv_source, self.p.window,
                      self.p.dip_k * 100, self.p.size_sol, self.s.swing_scan_interval_s)
