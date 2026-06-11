@@ -49,6 +49,12 @@ def _looks_like_url(s: str) -> bool:
     return s.startswith(("http://", "https://", "ipfs://"))
 
 
+def _safe(s: str) -> str:
+    """ASCII-safe a string for the Windows console — token symbols carry arbitrary unicode/emoji (a real
+    launch symbol was an emoji that crashed cp1252 stdout)."""
+    return (s or "").encode("ascii", "replace").decode("ascii")
+
+
 def _extract_obj(reply: str):
     """Parse the vision reply into a dict (structured JSON, or the outermost {...} a chatty model wraps)."""
     if not reply:
@@ -219,9 +225,9 @@ def main() -> None:
         sc = "-" if r.get("score") is None else f"{r['score']:.2f}"
         if r.get("score") is not None:
             scored.append(r["score"])
-        tok = r["token"]
+        tok = _safe(r["token"])
         tok = (tok[:12] + "..") if len(tok) > 14 else tok
-        tail = r.get("err") or (r.get("img") or "")
+        tail = _safe(r.get("err") or (r.get("img") or ""))
         print(f"  {tok:<14} {b('impersonation'):>4} {b('bait'):>4} {b('recycled_generic'):>4} "
               f"{b('original_effort'):>4} {sc:>6}  {tail[:52]}")
     if len(scored) >= 2:
