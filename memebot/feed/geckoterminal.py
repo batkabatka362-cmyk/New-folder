@@ -12,6 +12,8 @@ Defensive: any failure returns [] (the runner treats empty as 'skip this token t
 """
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 
 from ..utils.logging import get_logger
@@ -39,16 +41,34 @@ class GeckoTerminalClient:
             await self._client.aclose()
             self._client = None
 
+    async def _get(self, url: str, params: dict | None = None):
+        """GET with ONE retry on a 429 (rate limit) after a backoff — GeckoTerminal's free tier throttles
+        transient bursts. Returns the httpx response (caller checks status_code) or None on a hard error."""
+        if self._client is None:
+            return None
+        r = None
+        for attempt in (0, 1):
+            try:
+                r = await self._client.get(url, params=params)
+            except Exception as e:  # noqa: BLE001
+                log.debug("geckoterminal GET failed: %s", type(e).__name__)
+                return None
+            if r.status_code == 429 and attempt == 0:
+                await asyncio.sleep(3.0)
+                continue
+            break
+        return r
+
     async def pool_for(self, mint: str) -> str | None:
         """The token's top pool address (cached). None on failure."""
         if mint in self._pool:
             return self._pool[mint]
         if self._client is None or not mint:
             return None
+        r = await self._get(f"{self.base_url}/networks/solana/tokens/{mint}/pools")
+        if r is None or r.status_code != 200:
+            return None
         try:
-            r = await self._client.get(f"{self.base_url}/networks/solana/tokens/{mint}/pools")
-            if r.status_code != 200:
-                return None
             data = r.json().get("data") or []
             if not data:
                 return None
@@ -57,7 +77,7 @@ class GeckoTerminalClient:
                 self._pool[mint] = addr
             return addr
         except Exception as e:  # noqa: BLE001
-            log.debug("geckoterminal pool_for failed: %s", type(e).__name__)
+            log.debug("geckoterminal pool_for parse failed: %s", type(e).__name__)
             return None
 
     async def chart(self, mint: str, interval: str = "4h") -> list[dict]:
@@ -69,11 +89,11 @@ class GeckoTerminalClient:
         if not pool:
             return []
         tf, agg = _TF.get(interval, ("hour", 4))
+        r = await self._get(f"{self.base_url}/networks/solana/pools/{pool}/ohlcv/{tf}",
+                             params={"aggregate": agg, "limit": 1000})
+        if r is None or r.status_code != 200:
+            return []
         try:
-            r = await self._client.get(f"{self.base_url}/networks/solana/pools/{pool}/ohlcv/{tf}",
-                                       params={"aggregate": agg, "limit": 1000})
-            if r.status_code != 200:
-                return []
             rows = (((r.json().get("data") or {}).get("attributes") or {}).get("ohlcv_list")) or []
             bars = []
             for row in rows:

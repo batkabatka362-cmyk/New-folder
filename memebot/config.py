@@ -396,7 +396,7 @@ class Settings:
     # (the Solana Tracker free tier's ~2,500/mo is blown in days by per-scan polling). 'solanatracker' to
     # force the ST /chart instead. swing_poll_sleep_s spaces per-token calls under the GeckoTerminal limit.
     swing_ohlcv_source: str = "geckoterminal"   # geckoterminal | solanatracker
-    swing_poll_sleep_s: float = 2.1             # sleep between per-token OHLCV calls (>= 2s keeps GT under 30/min)
+    swing_poll_sleep_s: float = 2.5             # sleep between EVERY OHLCV/pool API call (>=2.5s keeps GT safely under 30/min with margin)
     # WL25 self-improvement: let the discovery loop PROMOTE a better mean-reversion config to live, but only
     # if it beats the live config's OOS gmean by a margin for several CONSECUTIVE runs (writes
     # swing_live_params.json, loaded on next start; paper-only + reversible by deleting the file).
@@ -732,7 +732,7 @@ class Settings:
             swing_loss_halt_lookback=_int("SWING_LOSS_HALT_LOOKBACK", 20),
             swing_min_liquidity_usd=_float("SWING_MIN_LIQUIDITY_USD", 50_000.0),
             swing_ohlcv_source=_str("SWING_OHLCV_SOURCE", "geckoterminal"),
-            swing_poll_sleep_s=_float("SWING_POLL_SLEEP_S", 2.1),
+            swing_poll_sleep_s=_float("SWING_POLL_SLEEP_S", 2.5),
             swing_promote_enabled=_bool("SWING_PROMOTE_ENABLED", True),
             swing_promote_margin=_float("SWING_PROMOTE_MARGIN", 0.15),
             swing_promote_streak=_int("SWING_PROMOTE_STREAK", 3),

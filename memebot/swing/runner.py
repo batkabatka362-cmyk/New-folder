@@ -130,6 +130,9 @@ class SwingRunner:
         items += [(p.symbol, m) for m, p in self.engine.positions.items() if m not in u_mints]
         for sym, mint in items:
             bars = await client.chart(mint, self.s.swing_interval)
+            await asyncio.sleep(self.s.swing_poll_sleep_s)     # space EVERY API call (even on empty) — the old
+            # end-of-body sleep was SKIPPED by the `continue` below, so a run of empty/rate-limited tokens
+            # burst through with no spacing and cascaded MORE 429s. Always pace, regardless of the result.
             if len(bars) < 2:                                  # need a closed bar + the forming bar
                 continue
             closes_all = [float(b["close"]) for b in bars]
@@ -159,7 +162,6 @@ class SwingRunner:
                     else:
                         log.info("swing EXIT  %s @ %.6g -> PnL %+.3f SOL (%+.1f%%) [%s]",
                                  sym, obj.exit_price, obj.pnl_sol, obj.pnl_pct * 100, obj.reason)
-            await asyncio.sleep(self.s.swing_poll_sleep_s)   # space calls under the OHLCV source's rate limit
         eq = self.engine.equity(price_map)
         st = self.engine.stats()
         log.info("swing book | equity %.3f SOL (start %.1f) | open %d | closed %d win%% %.0f pf %.2f realized %+.3f",
