@@ -1087,3 +1087,30 @@ def test_brain_audit_usage_and_ab():
     assert ab["brain"]["n"] == 2 and abs(ab["brain"]["net"] - 0.4) < 1e-9
     assert ab["rule"]["n"] == 1                       # the 50x glitch row dropped, leaving 1 clean rule trade
     assert ab["(unlabeled)"]["n"] == 1               # NULL-source rows tracked separately, not mixed in
+
+
+def test_rate_limiter_releases_lock_during_backoff():
+    """The async token-bucket must NOT hold its lock across the back-off sleep, or one throttled caller
+    stalls every other concurrent caller through its full wait. Driven on a virtual clock + sleep spy so
+    it's deterministic (no real sleeping) and specifically asserts the lock is free during the wait."""
+    import asyncio
+    from memebot.utils.rate_limit import AsyncRateLimiter
+
+    clock = [1000.0]
+    locked_during_sleep: list[bool] = []
+    rl = None
+
+    async def fake_sleep(d):
+        locked_during_sleep.append(rl._lock.locked())   # the fix: the lock must be FREE here
+        clock[0] += d                                   # advance virtual time so the next refill grants a token
+
+    rl = AsyncRateLimiter(60, burst=2, monotonic=lambda: clock[0], sleep=fake_sleep)
+
+    async def run():
+        await rl.acquire()        # token 1 of the burst -> immediate, no back-off
+        await rl.acquire()        # token 2 of the burst -> immediate, no back-off
+        await rl.acquire()        # bucket empty -> backs off once, clock +1s, refills 1 token, returns
+
+    asyncio.run(run())
+    assert locked_during_sleep == [False]               # backed off exactly once, lock RELEASED during it
+    assert rl.tokens < 1.0                              # the third acquire drained the just-refilled token
