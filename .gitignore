@@ -34,6 +34,8 @@ gbm_model.txt.*
 swing_cache.json
 # WL18 swing forward-test paper state (regenerates as it runs)
 swing_state.json
+# WL34 self-watching forward-proof GO marker (written once when the live paper book clears the gate)
+swing_GO.flag
 # WL19 autonomous-discovery validated-strategy registry (regenerates weekly)
 swing_strategies.json
 # supervisor diagnostic capture

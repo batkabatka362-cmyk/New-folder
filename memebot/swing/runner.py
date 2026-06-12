@@ -21,11 +21,13 @@ from ..feed.solanatracker import SolanaTrackerClient
 from ..utils.logging import get_logger
 from .engine import SwingClosed, SwingEngine, SwingParams, SwingPosition
 from .promote import decide_promotion
+from .readiness import assess
 from .universe import liquid_universe
 
 log = get_logger("swing.runner")
 _STATE = "swing_state.json"
 _LIVE_PARAMS = "swing_live_params.json"   # WL25: a promoted config overrides the .env window/dip_k here
+_GO_FLAG = "swing_GO.flag"   # WL34: written ONCE when the forward-proof first reaches GO (durable dedupe)
 _REPLAY_CAP = 50          # max closed bars to replay after a poll gap (bounds a long-outage catch-up)
 
 
@@ -167,7 +169,30 @@ class SwingRunner:
         log.info("swing book | equity %.3f SOL (start %.1f) | open %d | closed %d win%% %.0f pf %.2f realized %+.3f",
                  eq, self.engine.initial, st["open"], st["closed"], st["win_rate"] * 100,
                  st["profit_factor"], st["realized_sol"])
+        self._maybe_announce_go()
         self._save()
+
+    def _maybe_announce_go(self) -> None:
+        """WL34 self-watching forward-proof alert. The bot watches its OWN readiness every scan, and the
+        run-on-boot autonomy supervisor keeps it alive 24/7 — so the >=40-trade GO is caught with NO
+        external cron or open IDE. Fires ONCE: swing_GO.flag is both the durable dedupe (survives restarts)
+        and the user-visible artifact (delete it to re-arm). Advisory only — it NEVER flips live mode; going
+        live stays a human decision under the paper-only constraint."""
+        if os.path.exists(_GO_FLAG):
+            return
+        closed = [{"pnl_sol": c.pnl_sol, "pnl_pct": c.pnl_pct} for c in self.engine.closed]
+        r = assess(closed, min_trades=self.s.swing_ready_min_trades,
+                   min_pf=self.s.swing_ready_min_pf, min_winrate=self.s.swing_ready_min_winrate)
+        if not r["go"]:
+            return
+        log.warning("=== SWING FORWARD-PROOF: GO === closed=%d win%%=%.0f pf=%.2f net=%+.3f SOL — the edge "
+                    "HOLDS on the live paper book. ADVISORY: going live stays a human decision (paper-only).",
+                    r["n"], r["win_rate"] * 100, r["pf"], r["net"])
+        try:
+            with open(_GO_FLAG, "w") as f:
+                json.dump(r, f)
+        except OSError:
+            pass
 
     async def _discover(self) -> None:
         """WL19 autonomous self-research: re-run the walk-forward strategy discovery, record the

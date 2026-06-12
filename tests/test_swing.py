@@ -328,3 +328,38 @@ def test_swing_universe_discovery_filters():
     assert "USDC" in _EXCLUDE and "HYPE" in _EXCLUDE                            # stables + non-memecoins listed
     assert _age_days(None) is None and _age_days("garbage") is None
     assert _age_days("2020-01-01T00:00:00Z") > 1000                            # years old -> large positive age
+
+
+def test_swing_go_flag_fires_once():
+    """WL34 self-watching forward-proof alert: the runner writes swing_GO.flag ONCE when the live paper
+    book first clears the readiness gate, and never re-fires (or errors) while the flag exists."""
+    import json
+    import os
+    import tempfile
+    import types
+
+    import memebot.swing.runner as rmod
+    from memebot.config import Settings
+    r = rmod.SwingRunner(Settings.load())
+    r._save = lambda: None
+    fd, flag = tempfile.mkstemp(suffix="_GO.flag")
+    os.close(fd)
+    os.remove(flag)                                      # start absent; redirect the marker off the real file
+    old = rmod._GO_FLAG
+    rmod._GO_FLAG = flag
+    try:
+        win = lambda: types.SimpleNamespace(pnl_sol=0.1, pnl_pct=0.1)   # noqa: E731
+        r.engine.closed = [win() for _ in range(5)]      # too few trades -> NO-GO, no flag
+        r._maybe_announce_go()
+        assert not os.path.exists(flag)
+        r.engine.closed = [win() for _ in range(40)]     # 40 winners -> clears the >=40 / net+ / pf / win gate
+        r._maybe_announce_go()
+        assert os.path.exists(flag)
+        with open(flag) as f:
+            assert json.load(f)["go"] is True
+        r._maybe_announce_go()                           # idempotent: flag already present -> no re-fire/error
+        assert os.path.exists(flag)
+    finally:
+        rmod._GO_FLAG = old
+        if os.path.exists(flag):
+            os.remove(flag)
